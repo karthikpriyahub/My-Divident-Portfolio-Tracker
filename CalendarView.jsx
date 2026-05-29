@@ -10,7 +10,7 @@ const YEARS      = Array.from({ length: 15 }, (_, i) => START_YEAR + i);
 
 // ── CalendarView ──────────────────────────────────────────────────────────────
 
-export default function CalendarView() {
+export default function CalendarView({ refreshKey = 0 }) {
   const [entries,  setEntries]  = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [year,     setYear]     = useState(START_YEAR);
@@ -29,7 +29,7 @@ export default function CalendarView() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [load, refreshKey]);
 
   // ── derive monthly data for selected year ────────────────────────────────
 

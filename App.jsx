@@ -1,24 +1,21 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { CheckCircle2, AlertTriangle, TrendingUp,
-  BarChart3, Database, Calendar, Zap, Target, BookOpen } from "lucide-react";
+  BarChart3, Database, Target, BookOpen } from "lucide-react";
 import api, { EMPTY_FORM } from "./utils.jsx";
 import PortfolioView        from "./PortfolioView.jsx";
 import { ChartsView, DataStoreView } from "./AnalyticsViews.jsx";
-import { QuickUpdateView, GoalView } from "./DashboardViews.jsx";
-import CalendarView          from "./CalendarView.jsx";
+import { GoalView } from "./DashboardViews.jsx";
 import DividendTrackerView   from "./DividendTrackerView.jsx";
 
 // ── Nav tabs ──────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id:"portfolio",   label:"Portfolio",    icon: TrendingUp },
-  { id:"charts",      label:"Charts",       icon: BarChart3  },
-  { id:"calendar",    label:"Div Calendar", icon: Calendar   },
-  { id:"quickupdate", label:"Quick Update", icon: Zap        },
-  { id:"goal",        label:"Income Goal",  icon: Target     },
-  { id:"divtracker",  label:"Div Tracker",  icon: BookOpen   },
-  { id:"datastore",   label:"Excel Store",  icon: Database   },
+  { id:"portfolio",  label:"Portfolio",   icon: TrendingUp },
+  { id:"charts",     label:"Charts",      icon: BarChart3  },
+  { id:"goal",       label:"Income Goal", icon: Target     },
+  { id:"divtracker", label:"Div Tracker", icon: BookOpen   },
+  { id:"datastore",  label:"Excel Store", icon: Database   },
 ];
 
 // ── Root App ──────────────────────────────────────────────────────────────────
@@ -32,6 +29,7 @@ export default function App() {
   const [showForm,  setShowForm]  = useState(false);
   const [form,      setForm]      = useState(EMPTY_FORM);
   const [editIndex, setEditIndex] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0);   // bump to force all tabs to re-fetch
 
   // ── data ──────────────────────────────────────────────────────────────────
 
@@ -41,6 +39,12 @@ export default function App() {
     catch { showToast("Cannot reach API server on port 3001.", false); }
     finally { setLoading(false); }
   }, []);
+
+  // Refresh everything — portfolio + signal all tabs to re-fetch dividends
+  const refreshAll = useCallback(async () => {
+    await loadPortfolio();
+    setRefreshKey((k) => k + 1);
+  }, [loadPortfolio]);
 
   useEffect(() => { loadPortfolio(); }, [loadPortfolio]);
 
@@ -171,12 +175,11 @@ export default function App() {
               />
             )}
             {activeTab === "charts"      && <ChartsView stocks={stocks} />}
-            {activeTab === "calendar"    && <CalendarView />}
-            {activeTab === "quickupdate" && <QuickUpdateView stocks={stocks} onStocksChange={setStocks} showToast={showToast} />}
             {activeTab === "goal"        && <GoalView stocks={stocks} />}
-            {activeTab === "divtracker"  && <DividendTrackerView stocks={stocks} showToast={showToast} />}
+            {activeTab === "divtracker"  && <DividendTrackerView stocks={stocks} showToast={showToast} refreshKey={refreshKey} />}
             {activeTab === "datastore"   && (
-              <DataStoreView stocks={stocks} onRefresh={loadPortfolio} showToast={showToast}
+              <DataStoreView stocks={stocks} onRefresh={loadPortfolio}
+                onStocksChange={setStocks} onRefreshAll={refreshAll} showToast={showToast}
                 onClearAll={async () => {
                   if (!window.confirm("Delete ALL records from portfolio.xlsx?")) return;
                   try   { setStocks(await api.clearAll()); showToast("All records cleared."); }

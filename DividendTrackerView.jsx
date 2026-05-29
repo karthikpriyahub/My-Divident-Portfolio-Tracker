@@ -43,7 +43,7 @@ const fmt = (n) => `₹${Math.round(Number(n) || 0).toLocaleString()}`;
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function DividendTrackerView({ stocks, showToast }) {
+export default function DividendTrackerView({ stocks, showToast, refreshKey = 0 }) {
   const [entries,   setEntries]   = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [saving,    setSaving]    = useState(false);
@@ -62,7 +62,7 @@ export default function DividendTrackerView({ stocks, showToast }) {
     finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [load, refreshKey]);
 
   // ── form helpers ──────────────────────────────────────────────────────────
 

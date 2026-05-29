@@ -250,9 +250,6 @@ export function ChartsView({ stocks }) {
         <p className="text-slate-400">Data labels shown on every bar — hover for full values.</p>
       </div>
 
-      {/* Month-wise dividend — full width */}
-      <div className="mb-6"><MonthlyDivChart /></div>
-
       {/* P&L */}
       <div className="mb-6">
         <Bars
@@ -301,9 +298,11 @@ function InfoCard({ icon, label, value, sub, color }) {
   );
 }
 
-export function DataStoreView({ stocks, onRefresh, onClearAll, showToast }) {
+export function DataStoreView({ stocks, onRefresh, onStocksChange, onRefreshAll, onClearAll, showToast }) {
   const [meta,        setMeta]        = useState(null);
   const [metaLoading, setMetaLoading] = useState(true);
+  const [uploading,   setUploading]   = useState(false);
+  const fileRef = useRef(null);
 
   const loadMeta = useCallback(async () => {
     setMetaLoading(true);
@@ -318,26 +317,132 @@ export function DataStoreView({ stocks, onRefresh, onClearAll, showToast }) {
     ? new Date(iso).toLocaleString("en-IN", { dateStyle:"medium", timeStyle:"short" })
     : "—";
 
+
+  // ── Combined tracker.xlsx upload handler ─────────────────────────────────────
+
+  const handleUpload = async (file) => {
+    if (!file) return;
+    if (!file.name.match(/\.xlsx$/i)) {
+      showToast("⚠️ Please upload a .xlsx file only.", false); return;
+    }
+    setUploading(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const res = await fetch("/api/tracker/upload", {
+        method:  "POST",
+        headers: { "Content-Type": "application/octet-stream" },
+        body:    buf,
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        showToast(err.error || "Upload failed.", false);
+        return;
+      }
+      const { stocks, divs } = await res.json();
+      onStocksChange(stocks);
+      if (onRefreshAll) await onRefreshAll();
+      await loadMeta();
+      showToast(`✅ Loaded — ${stocks.length} stocks + ${divs.length} dividend entries from tracker.xlsx!`);
+    } catch {
+      showToast("Upload failed. Make sure it's a valid tracker.xlsx file.", false);
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  const onDrop = (e) => {
+    e.preventDefault();
+    handleUpload(e.dataTransfer.files[0]);
+  };
+
   return (
     <>
-      <div className="mb-8">
+      {/* Header */}
+      <div className="mb-6">
         <h2 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent mb-2">
           Excel Data Store
         </h2>
-        <p className="text-slate-400">All data lives in <code className="text-green-400">data/portfolio.xlsx</code> — your lightweight DB.</p>
+        <p className="text-slate-400 text-sm">
+          One Excel file — Portfolio + Dividends. Upload to restore. Download to save. Repeat every session.
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+      {/* 📤 Upload section */}
+      <Card className="bg-white/10 border-white/10 backdrop-blur-xl rounded-3xl shadow-2xl mb-6">
+        <CardContent className="p-6">
+          <h3 className="text-base font-bold text-white mb-1">📤 Upload tracker.xlsx</h3>
+          <p className="text-xs text-slate-400 mb-5">
+            Upload your saved <span className="text-green-400 font-mono">tracker.xlsx</span> to restore
+            all portfolio and dividend data instantly. Changes you make after uploading auto-save back to Excel.
+          </p>
+
+          {/* Drop zone */}
+          <div
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={onDrop}
+            onClick={() => fileRef.current?.click()}
+            className="border-2 border-dashed border-green-500/40 hover:border-green-400 rounded-2xl p-10
+              text-center cursor-pointer transition-all hover:bg-white/5"
+          >
+            <input ref={fileRef} type="file" accept=".xlsx" className="hidden"
+              onChange={(e) => handleUpload(e.target.files[0])} />
+
+            {uploading ? (
+              <div className="flex flex-col items-center gap-3">
+                <Loader2 size={36} className="animate-spin text-green-400" />
+                <p className="text-slate-300 font-semibold">Importing tracker.xlsx…</p>
+                <p className="text-slate-500 text-xs">Updating Portfolio + Dividends + all tabs</p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-3">
+                <div className="p-4 rounded-full bg-green-500/15">
+                  <FileSpreadsheet size={36} className="text-green-400" />
+                </div>
+                <p className="text-white font-bold text-base">Drag & drop tracker.xlsx here</p>
+                <p className="text-slate-400 text-sm">or click to browse your files</p>
+                <p className="text-green-400 font-mono text-xs bg-green-500/10 px-3 py-1 rounded-full">
+                  tracker.xlsx — Sheet 1: Portfolio · Sheet 2: Dividends
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Column guide */}
+          <details className="mt-4">
+            <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-300 transition">
+              📝 Expected column headers (click to expand)
+            </summary>
+            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="bg-slate-900/60 rounded-xl p-3">
+                <p className="text-xs text-green-400 font-bold mb-2">Sheet 1 — Portfolio</p>
+                <p className="font-mono text-[10px] text-slate-400 leading-relaxed">
+                  name · type · qty · divQty · avgPrice<br />
+                  currentPrice · dividend · netDividend · sector
+                </p>
+              </div>
+              <div className="bg-slate-900/60 rounded-xl p-3">
+                <p className="text-xs text-blue-400 font-bold mb-2">Sheet 2 — Dividends</p>
+                <p className="font-mono text-[10px] text-slate-400 leading-relaxed">
+                  id · year · month · stockName<br />
+                  grossDiv · tds · netDiv · notes
+                </p>
+              </div>
+            </div>
+          </details>
+        </CardContent>
+      </Card>
+
+      {/* File info cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
         {metaLoading ? (
           <div className="col-span-4 flex items-center gap-3 text-slate-400 py-6">
             <Loader2 size={20} className="animate-spin" /> Loading…
           </div>
         ) : meta ? (
           <>
-            <InfoCard icon={<FileSpreadsheet className="text-green-400"  size={22} />} label="Excel File"    value="portfolio.xlsx"      sub="Inside data/ folder"        color="green"  />
-            <InfoCard icon={<Table2         className="text-blue-400"   size={22} />} label="Total Records" value={meta.rows}            sub="rows in spreadsheet"        color="blue"   />
-            <InfoCard icon={<Database       className="text-purple-400" size={22} />} label="File Size"     value={`${meta.sizeKb} KB`} sub="on disk"                    color="purple" />
-            <InfoCard icon={<RefreshCw      className="text-yellow-400" size={22} />} label="Last Modified" value={fmt(meta.modified)}   sub="auto-saved on every change" color="yellow" />
+            <InfoCard icon={<Table2    className="text-blue-400"   size={22} />} label="Total Records" value={meta.rows}          sub="rows in portfolio.xlsx" color="blue"   />
+            <InfoCard icon={<RefreshCw className="text-yellow-400" size={22} />} label="Last Modified" value={fmt(meta.modified)} sub="auto-saved on every change" color="yellow" />
           </>
         ) : (
           <div className="col-span-4 text-red-400 flex items-center gap-2">
@@ -346,40 +451,53 @@ export function DataStoreView({ stocks, onRefresh, onClearAll, showToast }) {
         )}
       </div>
 
-      <div className="flex flex-wrap gap-3 mb-8">
-        <Button onClick={() => { window.open("/api/portfolio/download","_blank"); showToast("Downloading portfolio.xlsx…"); }}
-          className="h-11 px-6 rounded-2xl bg-gradient-to-r from-blue-500 to-cyan-600 text-white font-bold flex items-center gap-2">
-          <Download size={16} /> Download portfolio.xlsx
-        </Button>
-        <Button onClick={async () => { await onRefresh(); await loadMeta(); showToast("Refreshed from Excel."); }}
-          className="h-11 px-5 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-semibold flex items-center gap-2">
-          <RefreshCw size={15} /> Refresh
-        </Button>
-        <Button onClick={onClearAll}
-          className="h-11 px-5 rounded-2xl bg-red-500/20 hover:bg-red-500/40 text-red-300 font-semibold flex items-center gap-2 border border-red-500/30">
-          <Trash2 size={15} /> Clear All Records
-        </Button>
-      </div>
+      {/* 📥 Download + actions */}
+      <Card className="bg-white/10 border-white/10 backdrop-blur-xl rounded-3xl shadow-2xl mb-6">
+        <CardContent className="p-6">
+          <h3 className="text-base font-bold text-white mb-1">📥 Download & Update</h3>
+          <p className="text-xs text-slate-400 mb-5">
+            Download <span className="text-green-400 font-mono">tracker.xlsx</span> after making changes.
+            Re-upload next session to restore all data instantly.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <Button onClick={() => { window.open("/api/tracker/download","_blank"); showToast("Downloading tracker.xlsx…"); }}
+              className="h-11 px-6 rounded-2xl bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold flex items-center gap-2">
+              <Download size={16} /> Download tracker.xlsx
+            </Button>
+            <Button onClick={async () => { await onRefresh(); await loadMeta(); showToast("Refreshed from Excel."); }}
+              className="h-11 px-5 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-semibold flex items-center gap-2">
+              <RefreshCw size={15} /> Refresh
+            </Button>
+            <Button onClick={async () => { if (onRefreshAll) await onRefreshAll(); await loadMeta(); showToast("🔄 All tabs refreshed from Excel!"); }}
+              className="h-11 px-6 rounded-2xl bg-gradient-to-r from-blue-500 to-cyan-600 text-white font-bold flex items-center gap-2">
+              <RefreshCw size={15} /> Update All
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
+      {/* Raw preview */}
       <Card className="bg-white/10 border-white/10 backdrop-blur-xl rounded-3xl shadow-2xl overflow-hidden">
         <CardContent className="p-0">
           <div className="p-5 border-b border-white/10 flex items-center justify-between">
             <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Table2 size={16} className="text-cyan-400" /> Raw Excel Data Preview
+              <Table2 size={16} className="text-cyan-400" /> Portfolio Data Preview
             </h3>
             <span className="text-xs text-slate-400 bg-white/5 px-3 py-1 rounded-full">
-              Portfolio · {stocks.length} rows
+              {stocks.length} row{stocks.length !== 1 ? "s" : ""}
             </span>
           </div>
           {stocks.length === 0 ? (
             <div className="text-center py-16 text-slate-500">
-              <FileSpreadsheet size={36} className="mx-auto mb-3 opacity-30" /><p>No data yet.</p>
+              <FileSpreadsheet size={36} className="mx-auto mb-3 opacity-30" />
+              <p className="font-semibold">No data yet</p>
+              <p className="text-xs mt-1">Upload tracker.xlsx above to get started</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm text-white">
                 <thead className="bg-white/5 text-xs text-slate-400 uppercase tracking-wider">
-                  <tr>{["Row","name","type","qty","avgPrice","currentPrice","dividend","netDividend","sector"]
+                  <tr>{["Row","name","type","qty","divQty","avgPrice","currentPrice","dividend","netDividend","sector"]
                     .map((h) => <th key={h} className="p-4 text-left font-semibold">{h}</th>)}</tr>
                 </thead>
                 <tbody>
@@ -387,10 +505,9 @@ export function DataStoreView({ stocks, onRefresh, onClearAll, showToast }) {
                     <tr key={i} className="border-b border-white/5 hover:bg-white/5 font-mono text-xs">
                       <td className="p-4 text-slate-500">{i+1}</td>
                       <td className="p-4 text-green-400 font-bold">{s.name}</td>
-                      <td className="p-4">
-                        <span className={`px-2 py-0.5 rounded-full border text-xs ${TYPE_COLOR[s.type] ?? TYPE_COLOR.Equity}`}>{s.type}</span>
-                      </td>
+                      <td className="p-4"><span className={`px-2 py-0.5 rounded-full border text-xs ${TYPE_COLOR[s.type] ?? TYPE_COLOR.Equity}`}>{s.type}</span></td>
                       <td className="p-4">{s.qty}</td>
+                      <td className="p-4 text-cyan-300">{s.divQty || "—"}</td>
                       <td className="p-4">{s.avgPrice}</td>
                       <td className="p-4">{s.currentPrice}</td>
                       <td className="p-4">{s.dividend}</td>

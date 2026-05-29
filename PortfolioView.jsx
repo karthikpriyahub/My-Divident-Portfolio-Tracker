@@ -30,6 +30,7 @@ export default function PortfolioView({
   const totalDiv = stocks.reduce((s, x) => s + (x.divQty||x.qty) * x.dividend, 0);
   const totalPnL = totalCur - totalInv;
   const totalNet = stocks.reduce((s, x) => s + (x.netDividend ?? 0),   0);
+  const totalTDS = totalDiv - totalNet;   // gross - net = TDS deducted
   const overall  = totalPnL + totalNet;
 
   const filtered = stocks
@@ -69,6 +70,7 @@ export default function PortfolioView({
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-5">
         <SummaryCard color="yellow"  icon={<IndianRupee />} label="Yearly Gross Dividend"  value={`₹${totalDiv.toLocaleString()}`} />
         <SummaryCard color="orange"  icon={<Wallet      />} label="Net Dividend after TDS" value={`₹${Math.round(totalNet).toLocaleString()}`} sub="After TDS deductions" />
+        <SummaryCard color="red"     icon={<IndianRupee />} label="Total TDS Deducted"      value={`₹${Math.round(totalTDS).toLocaleString()}`} sub="Gross − Net dividend" />
         <SummaryCard color="blue"    icon={<TrendingUp  />} label="Dividend Yield"         value={`${pct(totalDiv, totalInv)}%`} />
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
