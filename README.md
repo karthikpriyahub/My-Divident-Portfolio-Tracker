@@ -9,26 +9,51 @@ A full-stack personal finance web app for tracking Indian stock, REIT and InvIT 
 | Tab | Description |
 |---|---|
 | **📈 Portfolio** | Holdings table with P&L, dividend yield, TDS calculations. Filter by type, search by name, sort any column. |
-| **📊 Charts** | Recharts visualisations — allocation pie, type breakdown, P&L bar, gross vs net dividend bar. |
+| **📊 Charts** | Month-wise dividend chart, P&L bar, Gross vs Net div — data labels on every bar. |
 | **📅 Div Calendar** | Month-wise dividend calendar (2026–2040) driven by actual Div Tracker entries. |
 | **⚡ Quick Update** | Tab through all stocks, update current prices inline, bulk-save to Excel in one click. |
-| **🎯 Income Goal** | Monthly passive income target with progress bar, milestone tracker (₹5k → ₹1L), investment gap calculator. |
-| **📋 Div Tracker** | Month-wise dividend ledger (2026–2040). Log every dividend received — auto-syncs to Div Calendar. |
+| **🎯 Income Goal** | Monthly passive income target with progress bar, milestone tracker (₹5k → ₹1L). |
+| **📋 Div Tracker** | Month-wise dividend ledger (2026–2040). Log every dividend received. |
 | **🗄️ Excel Store** | View Excel DB status, download files, raw data preview, clear all records. |
 
 ---
 
 ## 🏗️ Tech Stack
 
-- **Frontend** — React 18, Vite, Tailwind CSS, Framer Motion, Recharts, Lucide Icons
+- **Frontend** — React 18, Vite, Tailwind CSS, Framer Motion, Chart.js, Lucide Icons
 - **Backend** — Node.js, Express
 - **Database** — SheetJS (xlsx) — portfolio and dividends stored as `.xlsx` files
 - **No cloud DB required** — everything lives in `data/` folder
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Deployment
 
+### ✅ Recommended — Railway.app (free, works perfectly)
+
+1. Go to **https://railway.app** → sign in with GitHub
+2. **New Project** → Deploy from GitHub repo → pick this repo
+3. Set **Environment Variables** in Railway dashboard:
+   ```
+   NODE_ENV = production
+   PORT     = 3001
+   ```
+4. Set **Start Command** in Settings:
+   ```
+   npm run deploy
+   ```
+5. Railway gives you a public URL — done! ✅
+
+> ⚠️ **Note:** `data/*.xlsx` files are gitignored (private financial data).
+> On first deploy the app starts empty — add your stocks via the Portfolio tab.
+
+### ❌ Vercel / Netlify / GitHub Pages — NOT compatible
+These are static hosts. This app needs a persistent Node.js server (Express)
+and writable filesystem (for Excel DB). Use Railway or Render instead.
+
+---
+
+## 💻 Local Development
 ### Prerequisites
 - Node.js 18+
 - npm

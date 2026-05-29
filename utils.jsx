@@ -33,7 +33,7 @@ export const TYPE_CHART_COLOR = {
 };
 
 export const EMPTY_FORM = {
-  name:"", type:"Equity", qty:"", avgPrice:"",
+  name:"", type:"Equity", qty:"", divQty:"", avgPrice:"",
   currentPrice:"", dividend:"", netDividend:"", sector:"",
 };
 
@@ -51,7 +51,8 @@ export function calcStock(s) {
   const inv      = s.qty * s.avgPrice;
   const cur      = s.qty * s.currentPrice;
   const pnl      = cur - inv;
-  const gross    = s.qty * s.dividend;
+  const divQty   = s.divQty || s.qty;          // use divQty if set, else fall back to qty
+  const gross    = divQty * s.dividend;
   const net      = s.netDividend ?? 0;
   const tdsAmt   = gross - net;
   const tdsPct   = gross > 0 ? (tdsAmt / gross) * 100 : 0;

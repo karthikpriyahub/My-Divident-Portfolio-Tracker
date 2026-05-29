@@ -27,7 +27,7 @@ export default function PortfolioView({
 
   const totalInv = stocks.reduce((s, x) => s + x.qty * x.avgPrice,     0);
   const totalCur = stocks.reduce((s, x) => s + x.qty * x.currentPrice, 0);
-  const totalDiv = stocks.reduce((s, x) => s + x.qty * x.dividend,     0);
+  const totalDiv = stocks.reduce((s, x) => s + (x.divQty||x.qty) * x.dividend, 0);
   const totalPnL = totalCur - totalInv;
   const totalNet = stocks.reduce((s, x) => s + (x.netDividend ?? 0),   0);
   const overall  = totalPnL + totalNet;
@@ -138,11 +138,12 @@ export default function PortfolioView({
                     {[
                       { name:"name",         label:"Stock / Fund Name *",       type:"text",   ph:"e.g. ITC Limited" },
                       { name:"sector",        label:"Sector",                    type:"text",   ph:"e.g. FMCG / PSU" },
-                      { name:"qty",          label:"Quantity *",                type:"number", ph:"e.g. 250" },
-                      { name:"avgPrice",     label:"Avg Buy Price (₹) *",       type:"number", ph:"e.g. 430" },
-                      { name:"currentPrice", label:"Current Price (₹) *",       type:"number", ph:"e.g. 465" },
-                      { name:"dividend",     label:"Annual Dividend (₹/share)", type:"number", ph:"e.g. 25" },
-                      { name:"netDividend",  label:"Net Dividend (₹) received", type:"number", ph:"e.g. 4500" },
+                      { name:"qty",           label:"Quantity *",                type:"number", ph:"e.g. 250" },
+                      { name:"divQty",        label:"Dividend Quantity",         type:"number", ph:"defaults to Qty" },
+                      { name:"avgPrice",      label:"Avg Buy Price (₹) *",       type:"number", ph:"e.g. 430" },
+                      { name:"currentPrice",  label:"Current Price (₹) *",       type:"number", ph:"e.g. 465" },
+                      { name:"dividend",      label:"Annual Dividend (₹/share)", type:"number", ph:"e.g. 25" },
+                      { name:"netDividend",   label:"Net Dividend (₹) received", type:"number", ph:"e.g. 4500" },
                     ].map(({ name, label, type, ph }) => (
                       <div key={name}>
                         <label className="text-xs text-slate-400 mb-1 block uppercase tracking-wider">{label}</label>
@@ -194,6 +195,7 @@ export default function PortfolioView({
                     <th className="p-4 text-left font-bold">Edit</th>
                     <TH label="#" /><TH label="Stock / Fund" col="name" /><TH label="Type" col="type" />
                     <TH label="Sector" col="sector" /><TH label="Qty" col="qty" />
+                    <TH label="Div Qty" col="divQty" />
                     <TH label="Avg Buy (₹)" col="avgPrice" /><TH label="Current (₹)" col="currentPrice" />
                     <TH label="Investment (₹)" col="inv" /><TH label="Current Value (₹)" col="cur" />
                     <TH label="P&L (₹)" col="pnl" /><TH label="Return %" col="retPct" />
@@ -217,6 +219,7 @@ export default function PortfolioView({
                       <td className="p-4"><span className={`text-xs font-semibold px-2 py-1 rounded-full border ${TYPE_COLOR[s.type] ?? TYPE_COLOR.Equity}`}>{s.type}</span></td>
                       <td className="p-4 text-slate-400 text-xs whitespace-nowrap">{s.sector || "—"}</td>
                       <td className="p-4">{s.qty.toLocaleString()}</td>
+                      <td className="p-4 text-cyan-300">{s.divQty ? s.divQty.toLocaleString() : <span className="text-slate-500 text-xs italic">= Qty</span>}</td>
                       <td className="p-4">₹{s.avgPrice.toLocaleString()}</td>
                       <td className="p-4 text-yellow-300">₹{s.currentPrice.toLocaleString()}</td>
                       <td className="p-4 font-semibold">₹{s.inv.toLocaleString()}</td>

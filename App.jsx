@@ -56,6 +56,7 @@ export default function App() {
   const openForm = (stock = null, idx = null) => {
     setForm(stock
       ? { name:stock.name, type:stock.type??"Equity", qty:stock.qty,
+          divQty:stock.divQty||"",
           avgPrice:stock.avgPrice, currentPrice:stock.currentPrice,
           dividend:stock.dividend, netDividend:stock.netDividend??"",
           sector:stock.sector??"" }
@@ -84,7 +85,8 @@ export default function App() {
     }
     const payload = {
       name:name.trim(), type:form.type||"Equity",
-      qty:Number(form.qty), avgPrice:Number(form.avgPrice),
+      qty:Number(form.qty), divQty:Number(form.divQty||form.qty||0),
+      avgPrice:Number(form.avgPrice),
       currentPrice:Number(form.currentPrice),
       dividend:Number(form.dividend||0), netDividend:Number(form.netDividend||0),
       sector:(form.sector||"").trim(),
@@ -117,7 +119,7 @@ export default function App() {
       investment: grp.reduce((s,x) => s + x.qty*x.avgPrice,     0),
       currentVal: grp.reduce((s,x) => s + x.qty*x.currentPrice, 0),
       pnl:        grp.reduce((s,x) => s + (x.qty*x.currentPrice - x.qty*x.avgPrice), 0),
-      grossDiv:   grp.reduce((s,x) => s + x.qty*x.dividend,     0),
+      grossDiv:   grp.reduce((s,x) => s + (x.divQty||x.qty)*x.dividend, 0),
     };
   });
 
