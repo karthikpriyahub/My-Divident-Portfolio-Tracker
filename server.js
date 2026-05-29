@@ -1,6 +1,7 @@
 /**
- * Portfolio Tracker — Express backend (Optimized for Vercel)
- * Reads / writes portfolio data to a writable environment path
+ * Portfolio Tracker — Express backend
+ * Reads / writes portfolio data to data/portfolio.xlsx
+ * Serves the React production build cleanly via Express v5
  */
 
 import express from "express";
@@ -12,9 +13,9 @@ import path from "path";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// ⚡ VERCEL FIX: Use /tmp directory in production for writable files
+// Render supports normal persistent directories; falls back cleanly to local data folder
 const IS_PROD = process.env.NODE_ENV === "production";
-const DATA_DIR = IS_PROD ? "/tmp/data" : path.join(__dirname, "data");
+const DATA_DIR = path.join(__dirname, "data");
 
 const XLSX_FILE = path.join(DATA_DIR, "portfolio.xlsx");
 const SHEET     = "Portfolio";
@@ -33,11 +34,10 @@ function ensureFile() {
   if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
   
   if (!existsSync(XLSX_FILE)) {
-    // If running on Vercel, see if a default seeded file exists in the repository root to copy over
     const rootFile = path.join(__dirname, "data", "portfolio.xlsx");
     if (IS_PROD && existsSync(rootFile)) {
       copyFileSync(rootFile, XLSX_FILE);
-      console.log("📋 Copied seed portfolio.xlsx to writable storage");
+      console.log("📋 Copied seed portfolio.xlsx to local storage");
     } else {
       const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.aoa_to_sheet([COLUMNS]);
@@ -215,7 +215,7 @@ function ensureDivFile() {
     const rootDivFile = path.join(__dirname, "data", "dividends.xlsx");
     if (IS_PROD && existsSync(rootDivFile)) {
       copyFileSync(rootDivFile, DIV_FILE);
-      console.log("📋 Copied seed dividends.xlsx to writable storage");
+      console.log("📋 Copied seed dividends.xlsx to local storage");
     } else {
       const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.aoa_to_sheet([DIV_COLS]);
@@ -312,7 +312,9 @@ app.get("/api/dividends/download", (_req, res) => {
 // ── Serve built React frontend in production ──────────────────────────────────
 if (IS_PROD && existsSync(DIST_DIR)) {
   app.use(express.static(DIST_DIR));
-  app.get("*", (req, res) => {
+  
+  // 🛠️ EXPRESS V5 WILDCARD ROUTE FIX
+  app.get("*(any)", (req, res) => {
     res.sendFile(path.join(DIST_DIR, "index.html"));
   });
   console.log(`🌐 Serving React UI from dist/`);
