@@ -1,51 +1,69 @@
 /**
  * Portfolio Tracker — Express backend
- * Reads / writes portfolio data to  data/portfolio.xlsx
- * Runs on port 3001; Vite proxies /api/* here during dev.
+ * Database : Neon PostgreSQL (persistent, free tier)
+ * Storage  : pg Pool — data survives Render restarts forever
+ * Excel    : XLSX used only for upload/download (backup)
  */
 
+import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import XLSX from "xlsx";
-import { existsSync, mkdirSync, statSync } from "fs";
+import pkg from "pg";
+import { existsSync } from "fs";
 import { fileURLToPath } from "url";
 import path from "path";
 
+const { Pool } = pkg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PORT     = process.env.PORT || 3001;
+const DIST_DIR = path.join(__dirname, "dist");
+const IS_PROD  = process.env.NODE_ENV === "production";
 
-const DATA_DIR  = path.join(__dirname, "data");
-const XLSX_FILE = path.join(DATA_DIR, "portfolio.xlsx");
-const SHEET     = "Portfolio";
-const PORT      = process.env.PORT || 3001;
-const DIST_DIR  = path.join(__dirname, "dist");
-const IS_PROD   = process.env.NODE_ENV === "production";
+// ── Neon PostgreSQL connection pool ───────────────────────────────────────────
 
-// ── helpers ──────────────────────────────────────────────────────────────────
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+  max: 5,
+});
 
-/** Column headers — must match what Python seeder wrote */
-const COLUMNS = [
-  "name", "type", "qty", "divQty", "avgPrice", "currentPrice",
-  "dividend", "netDividend", "sector",
-];
+// ── Create tables on first run ────────────────────────────────────────────────
 
-function ensureFile() {
-  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-  if (!existsSync(XLSX_FILE)) {
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([COLUMNS]);
-    XLSX.utils.book_append_sheet(wb, ws, SHEET);
-    XLSX.writeFile(wb, XLSX_FILE);
-    console.log("📄 Created new portfolio.xlsx");
-  }
+async function initDB() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS portfolio (
+      id             SERIAL  PRIMARY KEY,
+      name           TEXT    NOT NULL DEFAULT '',
+      type           TEXT    NOT NULL DEFAULT 'Equity',
+      qty            NUMERIC NOT NULL DEFAULT 0,
+      "divQty"       NUMERIC NOT NULL DEFAULT 0,
+      "avgPrice"     NUMERIC NOT NULL DEFAULT 0,
+      "currentPrice" NUMERIC NOT NULL DEFAULT 0,
+      dividend       NUMERIC NOT NULL DEFAULT 0,
+      "netDividend"  NUMERIC NOT NULL DEFAULT 0,
+      sector         TEXT    NOT NULL DEFAULT ''
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS dividends (
+      id           TEXT    PRIMARY KEY,
+      year         INTEGER NOT NULL DEFAULT 0,
+      month        INTEGER NOT NULL DEFAULT 0,
+      "stockName"  TEXT    NOT NULL DEFAULT '',
+      "grossDiv"   NUMERIC NOT NULL DEFAULT 0,
+      tds          NUMERIC NOT NULL DEFAULT 0,
+      "netDiv"     NUMERIC NOT NULL DEFAULT 0,
+      notes        TEXT    NOT NULL DEFAULT ''
+    );
+  `);
+  console.log("🗄️  Neon DB tables ready");
 }
 
-function readStocks() {
-  ensureFile();
-  const wb   = XLSX.readFile(XLSX_FILE);
-  const ws   = wb.Sheets[SHEET];
-  const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
-  // Coerce types — numeric fields cast to Number, strings kept as strings
-  return rows.map((r) => ({
+// ── Row mappers ───────────────────────────────────────────────────────────────
+
+function rowToStock(r) {
+  return {
     name:         String(r.name         ?? "").trim(),
     type:         String(r.type         ?? "Equity").trim(),
     qty:          Number(r.qty          ?? 0),
@@ -53,133 +71,88 @@ function readStocks() {
     avgPrice:     Number(r.avgPrice     ?? 0),
     currentPrice: Number(r.currentPrice ?? 0),
     dividend:     Number(r.dividend     ?? 0),
-    netDividend:  Number(r.netDividend  ?? 0),   // user-entered total net div ₹
+    netDividend:  Number(r.netDividend  ?? 0),
     sector:       String(r.sector       ?? "").trim(),
-  }));
+  };
 }
 
-function writeStocks(stocks) {
-  ensureFile();
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.json_to_sheet(stocks, { header: COLUMNS });
-  XLSX.utils.book_append_sheet(wb, ws, SHEET);
-  XLSX.writeFile(wb, XLSX_FILE);
+function rowToDiv(r) {
+  return {
+    id:        String(r.id        ?? ""),
+    year:      Number(r.year      ?? 0),
+    month:     Number(r.month     ?? 0),
+    stockName: String(r.stockName ?? "").trim(),
+    grossDiv:  Number(r.grossDiv  ?? 0),
+    tds:       Number(r.tds       ?? 0),
+    netDiv:    Number(r.netDiv    ?? 0),
+    notes:     String(r.notes     ?? "").trim(),
+  };
 }
 
-// ── server ────────────────────────────────────────────────────────────────────
+// ── DB helpers ────────────────────────────────────────────────────────────────
 
-const app = express();
-app.use(cors());
-app.use(express.json());
+async function getStocks() {
+  const { rows } = await pool.query(
+    `SELECT name, type, qty, "divQty", "avgPrice", "currentPrice",
+            dividend, "netDividend", sector
+     FROM portfolio ORDER BY id`
+  );
+  return rows.map(rowToStock);
+}
 
-/** GET /api/portfolio — return all stocks */
-app.get("/api/portfolio", (_req, res) => {
+async function setStocks(stocks) {
+  const client = await pool.connect();
   try {
-    res.json(readStocks());
+    await client.query("BEGIN");
+    await client.query("DELETE FROM portfolio");
+    for (const s of stocks) {
+      await client.query(
+        `INSERT INTO portfolio
+           (name, type, qty, "divQty", "avgPrice", "currentPrice",
+            dividend, "netDividend", sector)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [s.name, s.type, s.qty, s.divQty, s.avgPrice,
+         s.currentPrice, s.dividend, s.netDividend, s.sector]
+      );
+    }
+    await client.query("COMMIT");
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to read portfolio.xlsx" });
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
   }
-});
+}
 
-/** POST /api/portfolio — add one stock */
-app.post("/api/portfolio", (req, res) => {
-  try {
-    const stocks = readStocks();
-    const stock  = sanitise(req.body);
-    stocks.push(stock);
-    writeStocks(stocks);
-    res.status(201).json(stocks);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to add stock" });
-  }
-});
+async function getDivs() {
+  const { rows } = await pool.query(
+    `SELECT id, year, month, "stockName", "grossDiv", tds, "netDiv", notes
+     FROM dividends ORDER BY year, month`
+  );
+  return rows.map(rowToDiv);
+}
 
-/** PUT /api/portfolio — replace entire portfolio (bulk update) */
-app.put("/api/portfolio", (req, res) => {
+async function setDivs(divs) {
+  const client = await pool.connect();
   try {
-    const stocks = (req.body ?? []).map(sanitise);
-    writeStocks(stocks);
-    res.json(stocks);
+    await client.query("BEGIN");
+    await client.query("DELETE FROM dividends");
+    for (const d of divs) {
+      await client.query(
+        `INSERT INTO dividends
+           (id, year, month, "stockName", "grossDiv", tds, "netDiv", notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [d.id, d.year, d.month, d.stockName, d.grossDiv, d.tds, d.netDiv, d.notes]
+      );
+    }
+    await client.query("COMMIT");
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Bulk update failed" });
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
   }
-});
-
-/** PUT /api/portfolio/:index — update stock at index */
-app.put("/api/portfolio/:index", (req, res) => {
-  try {
-    const idx    = Number(req.params.index);
-    const stocks = readStocks();
-    if (idx < 0 || idx >= stocks.length)
-      return res.status(404).json({ error: "Stock not found" });
-    stocks[idx] = sanitise(req.body);
-    writeStocks(stocks);
-    res.json(stocks);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to update stock" });
-  }
-});
-
-/** GET /api/portfolio/meta — file info (size, modified, row count) */
-app.get("/api/portfolio/meta", (_req, res) => {
-  try {
-    ensureFile();
-    const stat   = statSync(XLSX_FILE);
-    const stocks = readStocks();
-    res.json({
-      file:     "data/portfolio.xlsx",
-      fullPath: XLSX_FILE,
-      rows:     stocks.length,
-      sizeKb:   (stat.size / 1024).toFixed(1),
-      modified: stat.mtime.toISOString(),
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to read file metadata" });
-  }
-});
-
-/** GET /api/portfolio/download — send the xlsx as a file attachment */
-app.get("/api/portfolio/download", (_req, res) => {
-  try {
-    ensureFile();
-    res.download(XLSX_FILE, "portfolio.xlsx");
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Download failed" });
-  }
-});
-
-/** DELETE /api/portfolio — clear ALL stocks */
-app.delete("/api/portfolio", (_req, res) => {
-  try {
-    writeStocks([]);
-    res.json([]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to clear portfolio" });
-  }
-});
-
-/** DELETE /api/portfolio/:index — remove stock at index */
-app.delete("/api/portfolio/:index", (req, res) => {
-  try {
-    const idx    = Number(req.params.index);
-    const stocks = readStocks();
-    if (idx < 0 || idx >= stocks.length)
-      return res.status(404).json({ error: "Stock not found" });
-    stocks.splice(idx, 1);
-    writeStocks(stocks);
-    res.json(stocks);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to delete stock" });
-  }
-});
+}
 
 function sanitise(body) {
   return {
@@ -190,58 +163,14 @@ function sanitise(body) {
     avgPrice:     Number(body.avgPrice     ?? 0),
     currentPrice: Number(body.currentPrice ?? 0),
     dividend:     Number(body.dividend     ?? 0),
-    netDividend:  Number(body.netDividend  ?? 0),   // user-entered total net div ₹
+    netDividend:  Number(body.netDividend  ?? 0),
     sector:       String(body.sector       ?? "").trim(),
   };
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// Dividend Tracker  —  data/dividends.xlsx
-// ══════════════════════════════════════════════════════════════════════════════
-
-const DIV_FILE  = path.join(DATA_DIR, "dividends.xlsx");
-const DIV_SHEET = "Dividends";
-const DIV_COLS  = ["id","year","month","stockName","grossDiv","tds","netDiv","notes"];
-
-function ensureDivFile() {
-  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-  if (!existsSync(DIV_FILE)) {
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([DIV_COLS]);
-    XLSX.utils.book_append_sheet(wb, ws, DIV_SHEET);
-    XLSX.writeFile(wb, DIV_FILE);
-    console.log("📄 Created new dividends.xlsx");
-  }
-}
-
-function readDivs() {
-  ensureDivFile();
-  const wb   = XLSX.readFile(DIV_FILE);
-  const ws   = wb.Sheets[DIV_SHEET];
-  const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
-  return rows.map((r) => ({
-    id:        String(r.id        ?? ""),
-    year:      Number(r.year      ?? 0),
-    month:     Number(r.month     ?? 0),
-    stockName: String(r.stockName ?? "").trim(),
-    grossDiv:  Number(r.grossDiv  ?? 0),
-    tds:       Number(r.tds       ?? 0),
-    netDiv:    Number(r.netDiv    ?? 0),
-    notes:     String(r.notes     ?? "").trim(),
-  }));
-}
-
-function writeDivs(rows) {
-  ensureDivFile();
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.json_to_sheet(rows, { header: DIV_COLS });
-  XLSX.utils.book_append_sheet(wb, ws, DIV_SHEET);
-  XLSX.writeFile(wb, DIV_FILE);
-}
-
 function sanitiseDiv(body) {
   return {
-    id:        String(body.id        ?? Date.now()),
+    id:        String(body.id        ?? String(Date.now())),
     year:      Number(body.year      ?? new Date().getFullYear()),
     month:     Number(body.month     ?? new Date().getMonth() + 1),
     stockName: String(body.stockName ?? "").trim(),
@@ -252,72 +181,200 @@ function sanitiseDiv(body) {
   };
 }
 
-/** GET /api/dividends — all entries */
-app.get("/api/dividends", (_req, res) => {
-  try { res.json(readDivs()); }
-  catch (err) { console.error(err); res.status(500).json({ error: "Failed to read dividends.xlsx" }); }
+// ── Express setup ─────────────────────────────────────────────────────────────
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+const rawExcel = express.raw({ type: "application/octet-stream", limit: "10mb" });
+
+// ── Portfolio routes ──────────────────────────────────────────────────────────
+
+app.get("/api/portfolio", async (_req, res) => {
+  try { res.json(await getStocks()); }
+  catch (err) { console.error(err); res.status(500).json({ error: "DB read failed" }); }
 });
 
-/** POST /api/dividends — add entry */
-app.post("/api/dividends", (req, res) => {
+app.post("/api/portfolio", async (req, res) => {
   try {
-    const rows = readDivs();
+    const stocks = await getStocks();
+    stocks.push(sanitise(req.body));
+    await setStocks(stocks);
+    res.status(201).json(stocks);
+  } catch (err) { console.error(err); res.status(500).json({ error: "Add stock failed" }); }
+});
+
+app.put("/api/portfolio", async (req, res) => {
+  try {
+    const stocks = (req.body ?? []).map(sanitise);
+    await setStocks(stocks);
+    res.json(stocks);
+  } catch (err) { console.error(err); res.status(500).json({ error: "Bulk update failed" }); }
+});
+
+app.put("/api/portfolio/:index", async (req, res) => {
+  try {
+    const idx    = Number(req.params.index);
+    const stocks = await getStocks();
+    if (idx < 0 || idx >= stocks.length)
+      return res.status(404).json({ error: "Stock not found" });
+    stocks[idx] = sanitise(req.body);
+    await setStocks(stocks);
+    res.json(stocks);
+  } catch (err) { console.error(err); res.status(500).json({ error: "Update stock failed" }); }
+});
+
+app.delete("/api/portfolio/:index", async (req, res) => {
+  try {
+    const idx    = Number(req.params.index);
+    const stocks = await getStocks();
+    if (idx < 0 || idx >= stocks.length)
+      return res.status(404).json({ error: "Stock not found" });
+    stocks.splice(idx, 1);
+    await setStocks(stocks);
+    res.json(stocks);
+  } catch (err) { console.error(err); res.status(500).json({ error: "Delete stock failed" }); }
+});
+
+app.delete("/api/portfolio", async (_req, res) => {
+  try { await pool.query("DELETE FROM portfolio"); res.json([]); }
+  catch (err) { console.error(err); res.status(500).json({ error: "Clear failed" }); }
+});
+
+app.get("/api/portfolio/meta", async (_req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT COUNT(*) AS cnt FROM portfolio");
+    res.json({
+      rows:     Number(rows[0].cnt),
+      modified: new Date().toISOString(),
+      db:       "Neon PostgreSQL",
+    });
+  } catch (err) { console.error(err); res.status(500).json({ error: "Meta failed" }); }
+});
+
+// ── Dividend routes ───────────────────────────────────────────────────────────
+
+app.get("/api/dividends", async (_req, res) => {
+  try { res.json(await getDivs()); }
+  catch (err) { console.error(err); res.status(500).json({ error: "DB read failed" }); }
+});
+
+app.post("/api/dividends", async (req, res) => {
+  try {
     const entry = { ...sanitiseDiv(req.body), id: String(Date.now()) };
-    rows.push(entry);
-    writeDivs(rows);
-    res.status(201).json(rows);
-  } catch (err) { console.error(err); res.status(500).json({ error: "Failed to add dividend entry" }); }
+    const divs  = await getDivs();
+    divs.push(entry);
+    await setDivs(divs);
+    res.status(201).json(divs);
+  } catch (err) { console.error(err); res.status(500).json({ error: "Add dividend failed" }); }
 });
 
-/** PUT /api/dividends/:id — update by id */
-app.put("/api/dividends/:id", (req, res) => {
+app.put("/api/dividends/:id", async (req, res) => {
   try {
-    const rows = readDivs();
-    const idx  = rows.findIndex((r) => r.id === req.params.id);
-    if (idx < 0) return res.status(404).json({ error: "Entry not found" });
-    rows[idx] = { ...sanitiseDiv(req.body), id: req.params.id };
-    writeDivs(rows);
-    res.json(rows);
-  } catch (err) { console.error(err); res.status(500).json({ error: "Failed to update entry" }); }
+    const d = { ...sanitiseDiv(req.body), id: req.params.id };
+    const result = await pool.query(
+      `UPDATE dividends SET year=$1, month=$2, "stockName"=$3,
+       "grossDiv"=$4, tds=$5, "netDiv"=$6, notes=$7 WHERE id=$8`,
+      [d.year, d.month, d.stockName, d.grossDiv, d.tds, d.netDiv, d.notes, d.id]
+    );
+    if (result.rowCount === 0) return res.status(404).json({ error: "Entry not found" });
+    res.json(await getDivs());
+  } catch (err) { console.error(err); res.status(500).json({ error: "Update dividend failed" }); }
 });
 
-/** DELETE /api/dividends/:id — delete by id */
-app.delete("/api/dividends/:id", (req, res) => {
+app.delete("/api/dividends/:id", async (req, res) => {
   try {
-    const rows    = readDivs();
-    const updated = rows.filter((r) => r.id !== req.params.id);
-    writeDivs(updated);
-    res.json(updated);
-  } catch (err) { console.error(err); res.status(500).json({ error: "Failed to delete entry" }); }
+    await pool.query("DELETE FROM dividends WHERE id=$1", [req.params.id]);
+    res.json(await getDivs());
+  } catch (err) { console.error(err); res.status(500).json({ error: "Delete dividend failed" }); }
 });
 
-/** GET /api/dividends/download — download dividends.xlsx */
-app.get("/api/dividends/download", (_req, res) => {
-  try { ensureDivFile(); res.download(DIV_FILE, "dividends.xlsx"); }
-  catch (err) { console.error(err); res.status(500).json({ error: "Download failed" }); }
+// ── Combined tracker.xlsx — upload / download ─────────────────────────────────
+
+const PORTFOLIO_COLS = ["name","type","qty","divQty","avgPrice","currentPrice","dividend","netDividend","sector"];
+const DIV_COLS       = ["id","year","month","stockName","grossDiv","tds","netDiv","notes"];
+
+function buildTrackerWorkbook(stocks, divs) {
+  const wb  = XLSX.utils.book_new();
+  const wsP = XLSX.utils.json_to_sheet(
+    stocks.length ? stocks
+      : [{ name:"",type:"Equity",qty:0,divQty:0,avgPrice:0,currentPrice:0,dividend:0,netDividend:0,sector:"" }],
+    { header: PORTFOLIO_COLS }
+  );
+  XLSX.utils.book_append_sheet(wb, wsP, "Portfolio");
+  const wsD = XLSX.utils.json_to_sheet(
+    divs.length ? divs
+      : [{ id:"",year:new Date().getFullYear(),month:1,stockName:"",grossDiv:0,tds:0,netDiv:0,notes:"" }],
+    { header: DIV_COLS }
+  );
+  XLSX.utils.book_append_sheet(wb, wsD, "Dividends");
+  return wb;
+}
+
+app.get("/api/tracker/download", async (_req, res) => {
+  try {
+    const stocks = await getStocks();
+    const divs   = await getDivs();
+    const buf    = XLSX.write(buildTrackerWorkbook(stocks, divs), { type: "buffer", bookType: "xlsx" });
+    res.setHeader("Content-Disposition", 'attachment; filename="tracker.xlsx"');
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.send(buf);
+    console.log(`📥 tracker.xlsx downloaded — ${stocks.length} stocks, ${divs.length} div entries`);
+  } catch (err) { console.error(err); res.status(500).json({ error: "Download failed" }); }
 });
 
-// ── Serve built React frontend in production ──────────────────────────────────
-// In dev, Vite handles the UI. In production (after `npm run build`),
-// Express serves the compiled dist/ folder on the same port as the API.
+app.post("/api/tracker/upload", rawExcel, async (req, res) => {
+  try {
+    const wb  = XLSX.read(req.body, { type: "buffer" });
+    const wsP = wb.Sheets["Portfolio"] ?? wb.Sheets[wb.SheetNames[0]];
+    const stocks = XLSX.utils.sheet_to_json(wsP, { defval: "" })
+      .map(sanitise).filter((s) => s.name);
+    await setStocks(stocks);
+
+    const wsD = wb.Sheets["Dividends"] ?? wb.Sheets[wb.SheetNames[1]];
+    let divs  = [];
+    if (wsD) {
+      divs = XLSX.utils.sheet_to_json(wsD, { defval: "" }).map((r) => ({
+        id:        String(r.id        || Date.now() + Math.random()),
+        year:      Number(r.year      || new Date().getFullYear()),
+        month:     Number(r.month     || 1),
+        stockName: String(r.stockName || "").trim(),
+        grossDiv:  Number(r.grossDiv  || 0),
+        tds:       Number(r.tds       || 0),
+        netDiv:    Number(r.netDiv    || 0),
+        notes:     String(r.notes     || "").trim(),
+      })).filter((r) => r.stockName);
+      await setDivs(divs);
+    }
+    console.log(`📤 tracker.xlsx uploaded — ${stocks.length} stocks, ${divs.length} div entries`);
+    res.json({ stocks, divs });
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: "Failed to parse tracker.xlsx. Ensure it has 'Portfolio' and 'Dividends' sheets." });
+  }
+});
+
+// ── Serve React frontend in production ────────────────────────────────────────
 
 if (IS_PROD && existsSync(DIST_DIR)) {
   app.use(express.static(DIST_DIR));
-  // All non-API routes → React SPA (Express 5 syntax)
-  app.get("/{*path}", (req, res) => {
+  app.get("/{*path}", (_req, res) => {
     res.set("Cache-Control", "no-store");
     res.sendFile(path.join(DIST_DIR, "index.html"));
   });
-  console.log(`🌐 Serving React UI from dist/`);
+  console.log("🌐 Serving React UI from dist/");
 }
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
-app.listen(PORT, () => {
-  ensureFile();
-  ensureDivFile();
-  console.log(`🚀 Portfolio Tracker running at http://localhost:${PORT}`);
-  console.log(`📊 Portfolio DB  : ${XLSX_FILE}`);
-  console.log(`📋 Dividends DB  : ${DIV_FILE}`);
-  console.log(`🔧 Mode          : ${IS_PROD ? "production" : "development"}`);
+app.listen(PORT, async () => {
+  try {
+    await initDB();
+    console.log(`🚀 Portfolio Tracker → http://localhost:${PORT}`);
+    console.log(`🗄️  Database : Neon PostgreSQL`);
+    console.log(`🔧 Mode     : ${IS_PROD ? "production" : "development"}`);
+  } catch (err) {
+    console.error("❌ DB init failed:", err.message);
+    process.exit(1);
+  }
 });
