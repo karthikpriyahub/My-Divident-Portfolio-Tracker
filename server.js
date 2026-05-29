@@ -294,31 +294,6 @@ app.delete("/api/dividends/:id", async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Delete dividend failed" }); }
 });
 
-// ── Live price fetch ─────────────────────────────────────────────────────
-
-/** POST /api/prices — fetch live prices from Yahoo Finance
- *  Body: { symbols: ["COALINDIA.NS", "HDFCBANK.NS"] }
- *  Returns: { "COALINDIA.NS": 452.3, "HDFCBANK.NS": 1634.5 }
- */
-app.post("/api/prices", async (req, res) => {
-  const { symbols = [] } = req.body ?? {};
-  if (!symbols.length) return res.json({});
-  const result = {};
-  await Promise.all(symbols.map(async (sym) => {
-    try {
-      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=1d`;
-      const r   = await fetch(url, {
-        headers: { "User-Agent": "Mozilla/5.0" },
-        signal:  AbortSignal.timeout(6000),
-      });
-      const json = await r.json();
-      const price = json?.chart?.result?.[0]?.meta?.regularMarketPrice;
-      if (price) result[sym] = Number(price);
-    } catch { /* skip failed symbols silently */ }
-  }));
-  res.json(result);
-});
-
 // ── Combined tracker.xlsx — upload / download ─────────────────────────────────
 
 const PORTFOLIO_COLS = ["name","type","qty","divQty","avgPrice","currentPrice","dividend","netDividend","sector"];

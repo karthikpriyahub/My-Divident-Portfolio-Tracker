@@ -65,7 +65,7 @@ export default function App() {
           divQty:stock.divQty||"",
           avgPrice:stock.avgPrice, currentPrice:stock.currentPrice,
           dividend:stock.dividend, netDividend:stock.netDividend??"",
-          sector:stock.sector??"", symbol:stock.symbol??"" }
+          sector:stock.sector??"" }
       : EMPTY_FORM);
     setEditIndex(idx);
     setShowForm(true);
@@ -95,7 +95,7 @@ export default function App() {
       avgPrice:Number(form.avgPrice),
       currentPrice:Number(form.currentPrice),
       dividend:Number(form.dividend||0), netDividend:Number(form.netDividend||0),
-      sector:(form.sector||"").trim(), symbol:(form.symbol||"").trim().toUpperCase(),
+      sector:(form.sector||"").trim(),
     };
     setSaving(true);
     try {
@@ -174,11 +174,6 @@ export default function App() {
                 onOpenForm={openForm} onCloseForm={closeForm}
                 onFieldChange={handleField} onSubmit={handleSubmit}
                 onDelete={handleDelete} onRefresh={loadPortfolio}
-                onPricesUpdate={async (updated) => {
-                  await api.bulkUpdate(updated);
-                  setStocks(updated);
-                  showToast(`✅ Live prices updated for ${updated.filter(s=>s.symbol).length} stocks!`);
-                }}
               />
             )}
             {activeTab === "charts"      && <ChartsView stocks={stocks} />}
