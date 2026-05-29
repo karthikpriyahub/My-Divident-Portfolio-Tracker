@@ -313,8 +313,8 @@ app.get("/api/dividends/download", (_req, res) => {
 if (IS_PROD && existsSync(DIST_DIR)) {
   app.use(express.static(DIST_DIR));
   
-  // 🛠️ EXPRESS V5 WILDCARD ROUTE FIX
-  app.get("*(any)", (req, res) => {
+  // 🛠️ EXPRESS V5 REGEX FIX (Catches all UI views while bypassing /api routes)
+  app.get(/^(?!\/api).+/, (req, res) => {
     res.sendFile(path.join(DIST_DIR, "index.html"));
   });
   console.log(`🌐 Serving React UI from dist/`);
