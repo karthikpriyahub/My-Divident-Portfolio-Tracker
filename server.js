@@ -16,7 +16,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR  = path.join(__dirname, "data");
 const XLSX_FILE = path.join(DATA_DIR, "portfolio.xlsx");
 const SHEET     = "Portfolio";
-const PORT      = 3001;
+const PORT      = process.env.PORT || 3001;
+const DIST_DIR  = path.join(__dirname, "dist");
+const IS_PROD   = process.env.NODE_ENV === "production";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -293,12 +295,26 @@ app.get("/api/dividends/download", (_req, res) => {
   catch (err) { console.error(err); res.status(500).json({ error: "Download failed" }); }
 });
 
+// ── Serve built React frontend in production ──────────────────────────────────
+// In dev, Vite handles the UI. In production (after `npm run build`),
+// Express serves the compiled dist/ folder on the same port as the API.
+
+if (IS_PROD && existsSync(DIST_DIR)) {
+  app.use(express.static(DIST_DIR));
+  // All non-API routes → React SPA (Express 5 syntax)
+  app.get("/{*path}", (req, res) => {
+    res.sendFile(path.join(DIST_DIR, "index.html"));
+  });
+  console.log(`🌐 Serving React UI from dist/`);
+}
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 app.listen(PORT, () => {
   ensureFile();
   ensureDivFile();
-  console.log(`🚀 Portfolio API running at http://localhost:${PORT}`);
-  console.log(`📊 Portfolio DB : ${XLSX_FILE}`);
-  console.log(`📋 Dividends DB : ${DIV_FILE}`);
+  console.log(`🚀 Portfolio Tracker running at http://localhost:${PORT}`);
+  console.log(`📊 Portfolio DB  : ${XLSX_FILE}`);
+  console.log(`📋 Dividends DB  : ${DIV_FILE}`);
+  console.log(`🔧 Mode          : ${IS_PROD ? "production" : "development"}`);
 });
