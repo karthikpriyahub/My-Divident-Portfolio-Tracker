@@ -1,24 +1,25 @@
 /**
- * Portfolio Tracker — Express backend
- * Reads / writes portfolio data to  data/portfolio.xlsx
- * Runs on port 3001; Vite proxies /api/* here during dev.
+ * Portfolio Tracker — Express backend (Optimized for Vercel)
+ * Reads / writes portfolio data to a writable environment path
  */
 
 import express from "express";
 import cors from "cors";
 import XLSX from "xlsx";
-import { existsSync, mkdirSync, statSync } from "fs";
+import { existsSync, mkdirSync, statSync, copyFileSync } from "fs";
 import { fileURLToPath } from "url";
 import path from "path";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const DATA_DIR  = path.join(__dirname, "data");
+// ⚡ VERCEL FIX: Use /tmp directory in production for writable files
+const IS_PROD = process.env.NODE_ENV === "production";
+const DATA_DIR = IS_PROD ? "/tmp/data" : path.join(__dirname, "data");
+
 const XLSX_FILE = path.join(DATA_DIR, "portfolio.xlsx");
 const SHEET     = "Portfolio";
 const PORT      = process.env.PORT || 3001;
 const DIST_DIR  = path.join(__dirname, "dist");
-const IS_PROD   = process.env.NODE_ENV === "production";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -30,12 +31,20 @@ const COLUMNS = [
 
 function ensureFile() {
   if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
+  
   if (!existsSync(XLSX_FILE)) {
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([COLUMNS]);
-    XLSX.utils.book_append_sheet(wb, ws, SHEET);
-    XLSX.writeFile(wb, XLSX_FILE);
-    console.log("📄 Created new portfolio.xlsx");
+    // If running on Vercel, see if a default seeded file exists in the repository root to copy over
+    const rootFile = path.join(__dirname, "data", "portfolio.xlsx");
+    if (IS_PROD && existsSync(rootFile)) {
+      copyFileSync(rootFile, XLSX_FILE);
+      console.log("📋 Copied seed portfolio.xlsx to writable storage");
+    } else {
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet([COLUMNS]);
+      XLSX.utils.book_append_sheet(wb, ws, SHEET);
+      XLSX.writeFile(wb, XLSX_FILE);
+      console.log("📄 Created new portfolio.xlsx");
+    }
   }
 }
 
@@ -44,7 +53,6 @@ function readStocks() {
   const wb   = XLSX.readFile(XLSX_FILE);
   const ws   = wb.Sheets[SHEET];
   const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
-  // Coerce types — numeric fields cast to Number, strings kept as strings
   return rows.map((r) => ({
     name:         String(r.name         ?? "").trim(),
     type:         String(r.type         ?? "Equity").trim(),
@@ -52,7 +60,7 @@ function readStocks() {
     avgPrice:     Number(r.avgPrice     ?? 0),
     currentPrice: Number(r.currentPrice ?? 0),
     dividend:     Number(r.dividend     ?? 0),
-    netDividend:  Number(r.netDividend  ?? 0),   // user-entered total net div ₹
+    netDividend:  Number(r.netDividend  ?? 0),   
     sector:       String(r.sector       ?? "").trim(),
   }));
 }
@@ -188,7 +196,7 @@ function sanitise(body) {
     avgPrice:     Number(body.avgPrice     ?? 0),
     currentPrice: Number(body.currentPrice ?? 0),
     dividend:     Number(body.dividend     ?? 0),
-    netDividend:  Number(body.netDividend  ?? 0),   // user-entered total net div ₹
+    netDividend:  Number(body.netDividend  ?? 0),   
     sector:       String(body.sector       ?? "").trim(),
   };
 }
@@ -204,11 +212,17 @@ const DIV_COLS  = ["id","year","month","stockName","grossDiv","tds","netDiv","no
 function ensureDivFile() {
   if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
   if (!existsSync(DIV_FILE)) {
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([DIV_COLS]);
-    XLSX.utils.book_append_sheet(wb, ws, DIV_SHEET);
-    XLSX.writeFile(wb, DIV_FILE);
-    console.log("📄 Created new dividends.xlsx");
+    const rootDivFile = path.join(__dirname, "data", "dividends.xlsx");
+    if (IS_PROD && existsSync(rootDivFile)) {
+      copyFileSync(rootDivFile, DIV_FILE);
+      console.log("📋 Copied seed dividends.xlsx to writable storage");
+    } else {
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet([DIV_COLS]);
+      XLSX.utils.book_append_sheet(wb, ws, DIV_SHEET);
+      XLSX.writeFile(wb, DIV_FILE);
+      console.log("📄 Created new dividends.xlsx");
+    }
   }
 }
 
@@ -296,13 +310,9 @@ app.get("/api/dividends/download", (_req, res) => {
 });
 
 // ── Serve built React frontend in production ──────────────────────────────────
-// In dev, Vite handles the UI. In production (after `npm run build`),
-// Express serves the compiled dist/ folder on the same port as the API.
-
 if (IS_PROD && existsSync(DIST_DIR)) {
   app.use(express.static(DIST_DIR));
-  // All non-API routes → React SPA (Express 5 syntax)
-  app.get("/{*path}", (req, res) => {
+  app.get("*", (req, res) => {
     res.sendFile(path.join(DIST_DIR, "index.html"));
   });
   console.log(`🌐 Serving React UI from dist/`);
