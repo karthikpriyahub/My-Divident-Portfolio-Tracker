@@ -24,6 +24,7 @@ export default function PortfolioView({
   const [sortDir,    setSortDir]    = useState("asc");
 
   const pct = (n, d) => d ? ((n / d) * 100).toFixed(2) : "0.00";
+  const fmt = (n) => Number(n).toLocaleString("en-IN", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
 
   const totalInv = stocks.reduce((s, x) => s + x.qty * x.avgPrice,     0);
   const totalCur = stocks.reduce((s, x) => s + x.qty * x.currentPrice, 0);
@@ -63,18 +64,18 @@ export default function PortfolioView({
   return (
     <>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-5">
-        <SummaryCard color="cyan"    icon={<IndianRupee />} label="Total Investment"       value={`₹${totalInv.toLocaleString()}`} />
-        <SummaryCard color="green"   icon={<TrendingUp  />} label="Portfolio P&L"          value={`₹${totalPnL.toLocaleString()}`}       positive={totalPnL >= 0} />
+        <SummaryCard color="cyan"    icon={<IndianRupee />} label="Total Investment"       value={`₹${fmt(totalInv)}`} />
+        <SummaryCard color="green"   icon={<TrendingUp  />} label="Portfolio P&L"          value={`₹${fmt(totalPnL)}`}       positive={totalPnL >= 0} />
         <SummaryCard color="blue"    icon={<PieChart    />} label="Stocks Return %"        value={`${pct(totalPnL, totalInv)}%`}          positive={totalPnL >= 0} />
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-5">
-        <SummaryCard color="yellow"  icon={<IndianRupee />} label="Yearly Gross Dividend"  value={`₹${totalDiv.toLocaleString()}`} />
-        <SummaryCard color="orange"  icon={<Wallet      />} label="Net Dividend after TDS" value={`₹${Math.round(totalNet).toLocaleString()}`} sub="After TDS deductions" />
-        <SummaryCard color="red"     icon={<IndianRupee />} label="Total TDS Deducted"      value={`₹${Math.round(totalTDS).toLocaleString()}`} sub="Gross − Net dividend" />
+        <SummaryCard color="yellow"  icon={<IndianRupee />} label="Yearly Gross Dividend"  value={`₹${fmt(totalDiv)}`} />
+        <SummaryCard color="orange"  icon={<Wallet      />} label="Net Dividend after TDS" value={`₹${fmt(totalNet)}`} sub="After TDS deductions" />
+        <SummaryCard color="red"     icon={<IndianRupee />} label="Total TDS Deducted"      value={`₹${fmt(totalTDS)}`} sub="Gross − Net dividend" />
         <SummaryCard color="blue"    icon={<TrendingUp  />} label="Dividend Yield"         value={`${pct(totalDiv, totalInv)}%`} />
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
-        <SummaryCard color="emerald" icon={<IndianRupee />} label="Overall Portfolio Returns" value={`₹${Math.round(overall).toLocaleString()}`} positive={overall >= 0} sub="Stock P&L + Net Dividend" />
+        <SummaryCard color="emerald" icon={<IndianRupee />} label="Overall Portfolio Returns" value={`₹${fmt(overall)}`} positive={overall >= 0} sub="Stock P&L + Net Dividend" />
         <SummaryCard color="cyan"    icon={<PieChart    />} label="Overall Return %"          value={`${pct(overall, totalInv)}%`}              positive={overall >= 0} />
       </div>
 
@@ -88,9 +89,9 @@ export default function PortfolioView({
                 <span className="text-slate-400 text-xs">{count} holding{count !== 1 ? "s" : ""}</span>
               </div>
               <div className="space-y-1 text-sm">
-                <div className="flex justify-between"><span className="text-slate-400">Invested</span><span className="text-white font-semibold">₹{investment.toLocaleString()}</span></div>
-                <div className="flex justify-between"><span className="text-slate-400">P&L</span><span className={`font-bold ${pnl >= 0 ? "text-green-400" : "text-red-400"}`}>₹{pnl.toLocaleString()}</span></div>
-                <div className="flex justify-between"><span className="text-slate-400">Gross Div</span><span className="text-yellow-400 font-semibold">₹{grossDiv.toLocaleString()}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Invested</span><span className="text-white font-semibold">₹{fmt(investment)}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">P&L</span><span className={`font-bold ${pnl >= 0 ? "text-green-400" : "text-red-400"}`}>₹{fmt(pnl)}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Gross Div</span><span className="text-yellow-400 font-semibold">₹{fmt(grossDiv)}</span></div>
               </div>
             </CardContent>
           </Card>
@@ -222,19 +223,19 @@ export default function PortfolioView({
                       <td className="p-4 text-slate-400 text-xs whitespace-nowrap">{s.sector || "—"}</td>
                       <td className="p-4">{s.qty.toLocaleString()}</td>
                       <td className="p-4 text-cyan-300">{s.divQty ? s.divQty.toLocaleString() : <span className="text-slate-500 text-xs italic">= Qty</span>}</td>
-                      <td className="p-4">₹{s.avgPrice.toLocaleString()}</td>
-                      <td className="p-4 text-yellow-300">₹{s.currentPrice.toLocaleString()}</td>
-                      <td className="p-4 font-semibold">₹{s.inv.toLocaleString()}</td>
-                      <td className="p-4 text-blue-300 font-semibold">₹{s.cur.toLocaleString()}</td>
-                      <td className={`p-4 font-bold ${s.pnl >= 0 ? "text-green-400" : "text-red-400"}`}>₹{s.pnl.toLocaleString()}</td>
+                      <td className="p-4">₹{fmt(s.avgPrice)}</td>
+                      <td className="p-4 text-yellow-300">₹{fmt(s.currentPrice)}</td>
+                      <td className="p-4 font-semibold">₹{fmt(s.inv)}</td>
+                      <td className="p-4 text-blue-300 font-semibold">₹{fmt(s.cur)}</td>
+                      <td className={`p-4 font-bold ${s.pnl >= 0 ? "text-green-400" : "text-red-400"}`}>₹{fmt(s.pnl)}</td>
                       <td className={`p-4 font-bold ${s.retPct >= 0 ? "text-green-400" : "text-red-400"}`}>{s.retPct.toFixed(2)}%</td>
-                      <td className="p-4 text-yellow-400">₹{s.dividend}</td>
-                      <td className="p-4 text-green-300 font-semibold">₹{s.gross.toLocaleString()}</td>
+                      <td className="p-4 text-yellow-400">₹{fmt(s.dividend)}</td>
+                      <td className="p-4 text-green-300 font-semibold">₹{fmt(s.gross)}</td>
                       <td className="p-4 text-orange-300">{s.tdsPct.toFixed(2)}%</td>
-                      <td className="p-4 text-red-300">₹{Math.round(s.tdsAmt).toLocaleString()}</td>
-                      <td className="p-4 text-emerald-300 font-bold">₹{Math.round(s.net).toLocaleString()}</td>
+                      <td className="p-4 text-red-300">₹{fmt(s.tdsAmt)}</td>
+                      <td className="p-4 text-emerald-300 font-bold">₹{fmt(s.net)}</td>
                       <td className="p-4 text-emerald-400 font-bold">{s.yieldPct.toFixed(2)}%</td>
-                      <td className={`p-4 font-bold ${s.overall >= 0 ? "text-green-400" : "text-red-400"}`}>₹{Math.round(s.overall).toLocaleString()}</td>
+                      <td className={`p-4 font-bold ${s.overall >= 0 ? "text-green-400" : "text-red-400"}`}>₹{fmt(s.overall)}</td>
                       <td className="p-4">
                         <button onClick={() => onDelete(stocks.findIndex((x) => x.name === s.name))} title="Delete"
                           className="bg-red-500/20 hover:bg-red-500/40 p-2 rounded-xl transition"><Trash2 size={14} className="text-red-300" /></button>
