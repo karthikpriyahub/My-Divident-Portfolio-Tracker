@@ -15,15 +15,43 @@ function SortIcon({ col, sortCol, sortDir }) {
 export default function PortfolioView({
   stocks, loading, saving, byType,
   showForm, form, editIndex,
-  onOpenForm, onCloseForm, onFieldChange, onSubmit, onDelete, onRefresh,
+  onOpenForm, onCloseForm, onFieldChange, onSubmit, onDelete, onRefresh, onPricesUpdate,
 }) {
   const formRef = useRef(null);
-  const [search,     setSearch]     = useState("");
-  const [typeFilter, setTypeFilter] = useState("All");
-  const [sortCol,    setSortCol]    = useState(null);
-  const [sortDir,    setSortDir]    = useState("asc");
+  const [search,       setSearch]       = useState("");
+  const [typeFilter,   setTypeFilter]   = useState("All");
+  const [sortCol,      setSortCol]      = useState(null);
+  const [sortDir,      setSortDir]      = useState("asc");
+  const [fetchingPx,   setFetchingPx]   = useState(false);
 
   const pct = (n, d) => d ? ((n / d) * 100).toFixed(2) : "0.00";
+
+  // ── Live price fetch ──────────────────────────────────────────────────────────
+  const fetchLivePrices = async () => {
+    const symboled = stocks.filter((s) => s.symbol);
+    if (!symboled.length) {
+      alert("No stocks have a Yahoo Symbol set. Edit each stock and add e.g. COALINDIA.NS");
+      return;
+    }
+    setFetchingPx(true);
+    try {
+      const symbols = symboled.map((s) => s.symbol);
+      const res     = await fetch("/api/prices", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ symbols }),
+      });
+      const prices = await res.json();
+      const updated = stocks.map((s) =>
+        prices[s.symbol] ? { ...s, currentPrice: prices[s.symbol] } : s
+      );
+      await onPricesUpdate(updated);
+    } catch {
+      alert("Failed to fetch live prices. Check your internet connection.");
+    } finally {
+      setFetchingPx(false);
+    }
+  };
   const fmt = (n) => Number(n).toLocaleString("en-IN", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
 
   const totalInv = stocks.reduce((s, x) => s + x.qty * x.avgPrice,     0);
@@ -102,6 +130,10 @@ export default function PortfolioView({
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <Button onClick={() => onOpenForm()} className="h-10 px-5 rounded-2xl bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold">+ Add Stock</Button>
         <Button onClick={onRefresh} className="h-10 px-4 rounded-2xl bg-white/10 hover:bg-white/20 text-white flex items-center gap-2"><RefreshCw size={14} /> Refresh</Button>
+        <Button onClick={fetchLivePrices} disabled={fetchingPx}
+          className="h-10 px-4 rounded-2xl bg-gradient-to-r from-blue-500 to-cyan-600 text-white font-bold flex items-center gap-2 disabled:opacity-50">
+          {fetchingPx ? <><Loader2 size={14} className="animate-spin" /> Fetching…</> : <>📶 Fetch Live Prices</>}
+        </Button>
         {loading && <Loader2 size={15} className="animate-spin text-slate-400" />}
       </div>
 
@@ -141,6 +173,7 @@ export default function PortfolioView({
                     {[
                       { name:"name",         label:"Stock / Fund Name *",       type:"text",   ph:"e.g. ITC Limited" },
                       { name:"sector",        label:"Sector",                    type:"text",   ph:"e.g. FMCG / PSU" },
+                      { name:"symbol",        label:"Yahoo Symbol (for live price)", type:"text", ph:"e.g. ITC.NS or ICICIBANK.BO" },
                       { name:"qty",           label:"Quantity *",                type:"number", ph:"e.g. 250" },
                       { name:"divQty",        label:"Dividend Quantity",         type:"number", ph:"defaults to Qty" },
                       { name:"avgPrice",      label:"Avg Buy Price (₹) *",       type:"number", ph:"e.g. 430" },

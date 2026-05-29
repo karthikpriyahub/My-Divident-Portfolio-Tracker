@@ -1,21 +1,23 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { CheckCircle2, AlertTriangle, TrendingUp,
-  BarChart3, Database, Target, BookOpen } from "lucide-react";
+  BarChart3, Database, Target, BookOpen, BarChart2 } from "lucide-react";
 import api, { EMPTY_FORM } from "./utils.jsx";
 import PortfolioView        from "./PortfolioView.jsx";
 import { ChartsView, DataStoreView } from "./AnalyticsViews.jsx";
 import { GoalView } from "./DashboardViews.jsx";
 import DividendTrackerView   from "./DividendTrackerView.jsx";
+import YearSummaryView       from "./YearSummaryView.jsx";
 
 // ── Nav tabs ──────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id:"portfolio",  label:"Portfolio",   icon: TrendingUp },
-  { id:"charts",     label:"Charts",      icon: BarChart3  },
-  { id:"goal",       label:"Income Goal", icon: Target     },
-  { id:"divtracker", label:"Div Tracker", icon: BookOpen   },
-  { id:"datastore",  label:"Excel Store", icon: Database   },
+  { id:"portfolio",   label:"Portfolio",      icon: TrendingUp },
+  { id:"charts",      label:"Charts",         icon: BarChart3  },
+  { id:"yearsummary", label:"Year Summary",   icon: BarChart2  },
+  { id:"goal",        label:"Income Goal",    icon: Target     },
+  { id:"divtracker",  label:"Div Tracker",    icon: BookOpen   },
+  { id:"datastore",   label:"Excel Store",    icon: Database   },
 ];
 
 // ── Root App ──────────────────────────────────────────────────────────────────
@@ -63,7 +65,7 @@ export default function App() {
           divQty:stock.divQty||"",
           avgPrice:stock.avgPrice, currentPrice:stock.currentPrice,
           dividend:stock.dividend, netDividend:stock.netDividend??"",
-          sector:stock.sector??"" }
+          sector:stock.sector??"", symbol:stock.symbol??"" }
       : EMPTY_FORM);
     setEditIndex(idx);
     setShowForm(true);
@@ -93,7 +95,7 @@ export default function App() {
       avgPrice:Number(form.avgPrice),
       currentPrice:Number(form.currentPrice),
       dividend:Number(form.dividend||0), netDividend:Number(form.netDividend||0),
-      sector:(form.sector||"").trim(),
+      sector:(form.sector||"").trim(), symbol:(form.symbol||"").trim().toUpperCase(),
     };
     setSaving(true);
     try {
@@ -172,9 +174,15 @@ export default function App() {
                 onOpenForm={openForm} onCloseForm={closeForm}
                 onFieldChange={handleField} onSubmit={handleSubmit}
                 onDelete={handleDelete} onRefresh={loadPortfolio}
+                onPricesUpdate={async (updated) => {
+                  await api.bulkUpdate(updated);
+                  setStocks(updated);
+                  showToast(`✅ Live prices updated for ${updated.filter(s=>s.symbol).length} stocks!`);
+                }}
               />
             )}
             {activeTab === "charts"      && <ChartsView stocks={stocks} />}
+            {activeTab === "yearsummary" && <YearSummaryView />}
             {activeTab === "goal"        && <GoalView stocks={stocks} />}
             {activeTab === "divtracker"  && <DividendTrackerView stocks={stocks} showToast={showToast} refreshKey={refreshKey} />}
             {activeTab === "datastore"   && (

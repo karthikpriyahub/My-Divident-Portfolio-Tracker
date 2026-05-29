@@ -6,9 +6,11 @@ import { Button } from "./utils.jsx";
 import {
   Chart, BarElement, CategoryScale, LinearScale,
   Tooltip, Legend, BarController,
+  ArcElement, DoughnutController,
 } from "chart.js";
 
-Chart.register(BarElement, CategoryScale, LinearScale, Tooltip, Legend, BarController);
+Chart.register(BarElement, CategoryScale, LinearScale, Tooltip, Legend, BarController,
+               ArcElement, DoughnutController);
 
 // ── Inline data-label plugin — draws ₹ value above every non-zero bar ────────
 
@@ -217,6 +219,16 @@ function MonthlyDivChart() {
   );
 }
 
+function Doughnut({ data, options }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!ref.current) return;
+    const ch = new Chart(ref.current, { type: "doughnut", data, options });
+    return () => ch.destroy();
+  }, [JSON.stringify(data)]);
+  return <canvas ref={ref} />;
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // Charts View
 // ══════════════════════════════════════════════════════════════════════════════
@@ -241,6 +253,17 @@ export function ChartsView({ stocks }) {
   const divStocks = computed.filter((s) => s.gross > 0);
   const divLabels = divStocks.map((s) => s.name.split(" ")[0]);
 
+  // Sector allocation
+  const sectorMap = {};
+  computed.forEach((s) => {
+    const sec = s.sector || "Other";
+    sectorMap[sec] = (sectorMap[sec] || 0) + s.inv;
+  });
+  const secLabels = Object.keys(sectorMap);
+  const secValues = secLabels.map((k) => Math.round(sectorMap[k]));
+  const PALETTE   = ["#3b82f6","#10b981","#f59e0b","#ef4444","#8b5cf6",
+                     "#06b6d4","#f97316","#84cc16","#ec4899","#6366f1"];
+
   return (
     <>
       <div className="mb-6">
@@ -248,6 +271,61 @@ export function ChartsView({ stocks }) {
           Portfolio Charts
         </h2>
         <p className="text-slate-400">Data labels shown on every bar — hover for full values.</p>
+      </div>
+
+      {/* Sector Allocation Doughnut */}
+      <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Card className="bg-white/10 border-white/10 backdrop-blur-xl rounded-3xl shadow-2xl">
+          <CardContent className="p-5">
+            <p className="text-white font-bold mb-4">🎯 Sector-wise Allocation</p>
+            <div style={{ position:"relative", height:260 }}>
+              <Doughnut
+                data={{
+                  labels: secLabels,
+                  datasets: [{ data: secValues,
+                    backgroundColor: PALETTE.slice(0, secLabels.length),
+                    borderColor: "#0f172a", borderWidth: 2 }],
+                }}
+                options={{
+                  responsive: true, maintainAspectRatio: false,
+                  plugins: {
+                    legend: { position:"right", labels:{ color:"#cbd5e1", boxWidth:12, padding:10 } },
+                    tooltip: {
+                      callbacks: {
+                        label: (ctx) => ` ₹${ctx.parsed.toLocaleString("en-IN")} (${((ctx.parsed/secValues.reduce((a,b)=>a+b,0))*100).toFixed(1)}%)`
+                      }
+                    }
+                  }
+                }}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Sector table */}
+        <Card className="bg-white/10 border-white/10 backdrop-blur-xl rounded-3xl shadow-2xl">
+          <CardContent className="p-5">
+            <p className="text-white font-bold mb-4">📊 Sector Breakdown</p>
+            <div className="space-y-3">
+              {secLabels.map((sec, i) => {
+                const total = secValues.reduce((a, b) => a + b, 0);
+                const pct   = total ? ((secValues[i] / total) * 100).toFixed(1) : 0;
+                return (
+                  <div key={sec}>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-slate-300 font-semibold">{sec}</span>
+                      <span className="text-white">₹{secValues[i].toLocaleString("en-IN")} · {pct}%</span>
+                    </div>
+                    <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                      <div style={{ width:`${pct}%`, background: PALETTE[i % PALETTE.length] }}
+                        className="h-full rounded-full transition-all" />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* P&L */}

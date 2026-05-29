@@ -34,7 +34,7 @@ export const TYPE_CHART_COLOR = {
 
 export const EMPTY_FORM = {
   name:"", type:"Equity", qty:"", divQty:"", avgPrice:"",
-  currentPrice:"", dividend:"", netDividend:"", sector:"",
+  currentPrice:"", dividend:"", netDividend:"", sector:"", symbol:"",
 };
 
 export const MONTH_NAMES = [

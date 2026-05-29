@@ -42,9 +42,12 @@ async function initDB() {
       "currentPrice" NUMERIC NOT NULL DEFAULT 0,
       dividend       NUMERIC NOT NULL DEFAULT 0,
       "netDividend"  NUMERIC NOT NULL DEFAULT 0,
-      sector         TEXT    NOT NULL DEFAULT ''
+      sector         TEXT    NOT NULL DEFAULT '',
+      symbol         TEXT    NOT NULL DEFAULT ''
     );
   `);
+  // safe migration — add symbol if existing table doesn’t have it
+  await pool.query(`ALTER TABLE portfolio ADD COLUMN IF NOT EXISTS symbol TEXT NOT NULL DEFAULT '';`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS dividends (
       id           TEXT    PRIMARY KEY,
@@ -73,6 +76,7 @@ function rowToStock(r) {
     dividend:     Number(r.dividend     ?? 0),
     netDividend:  Number(r.netDividend  ?? 0),
     sector:       String(r.sector       ?? "").trim(),
+    symbol:       String(r.symbol       ?? "").trim(),
   };
 }
 
@@ -94,7 +98,7 @@ function rowToDiv(r) {
 async function getStocks() {
   const { rows } = await pool.query(
     `SELECT name, type, qty, "divQty", "avgPrice", "currentPrice",
-            dividend, "netDividend", sector
+            dividend, "netDividend", sector, symbol
      FROM portfolio ORDER BY id`
   );
   return rows.map(rowToStock);
@@ -109,10 +113,10 @@ async function setStocks(stocks) {
       await client.query(
         `INSERT INTO portfolio
            (name, type, qty, "divQty", "avgPrice", "currentPrice",
-            dividend, "netDividend", sector)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+            dividend, "netDividend", sector, symbol)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
         [s.name, s.type, s.qty, s.divQty, s.avgPrice,
-         s.currentPrice, s.dividend, s.netDividend, s.sector]
+         s.currentPrice, s.dividend, s.netDividend, s.sector, s.symbol]
       );
     }
     await client.query("COMMIT");
@@ -165,6 +169,7 @@ function sanitise(body) {
     dividend:     Number(body.dividend     ?? 0),
     netDividend:  Number(body.netDividend  ?? 0),
     sector:       String(body.sector       ?? "").trim(),
+    symbol:       String(body.symbol       ?? "").trim().toUpperCase(),
   };
 }
 
@@ -287,6 +292,31 @@ app.delete("/api/dividends/:id", async (req, res) => {
     await pool.query("DELETE FROM dividends WHERE id=$1", [req.params.id]);
     res.json(await getDivs());
   } catch (err) { console.error(err); res.status(500).json({ error: "Delete dividend failed" }); }
+});
+
+// ── Live price fetch ─────────────────────────────────────────────────────
+
+/** POST /api/prices — fetch live prices from Yahoo Finance
+ *  Body: { symbols: ["COALINDIA.NS", "HDFCBANK.NS"] }
+ *  Returns: { "COALINDIA.NS": 452.3, "HDFCBANK.NS": 1634.5 }
+ */
+app.post("/api/prices", async (req, res) => {
+  const { symbols = [] } = req.body ?? {};
+  if (!symbols.length) return res.json({});
+  const result = {};
+  await Promise.all(symbols.map(async (sym) => {
+    try {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=1d`;
+      const r   = await fetch(url, {
+        headers: { "User-Agent": "Mozilla/5.0" },
+        signal:  AbortSignal.timeout(6000),
+      });
+      const json = await r.json();
+      const price = json?.chart?.result?.[0]?.meta?.regularMarketPrice;
+      if (price) result[sym] = Number(price);
+    } catch { /* skip failed symbols silently */ }
+  }));
+  res.json(result);
 });
 
 // ── Combined tracker.xlsx — upload / download ─────────────────────────────────
