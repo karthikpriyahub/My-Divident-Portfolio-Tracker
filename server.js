@@ -49,6 +49,8 @@ async function initDB() {
       "currentPrice" NUMERIC NOT NULL DEFAULT 0,
       yr             INTEGER NOT NULL DEFAULT 0,
       mo             INTEGER NOT NULL DEFAULT 0,
+      "divAmtPerShare" NUMERIC NOT NULL DEFAULT 0,
+      "divQty"       NUMERIC NOT NULL DEFAULT 0,
       "grossDiv"     NUMERIC NOT NULL DEFAULT 0,
       tds            NUMERIC NOT NULL DEFAULT 0,
       "netDiv"       NUMERIC NOT NULL DEFAULT 0,
@@ -56,10 +58,12 @@ async function initDB() {
     )
   `);
   for (const sql of [
-    `ALTER TABLE tracker ADD COLUMN IF NOT EXISTS yr      INTEGER NOT NULL DEFAULT 0`,
-    `ALTER TABLE tracker ADD COLUMN IF NOT EXISTS mo      INTEGER NOT NULL DEFAULT 0`,
-    `ALTER TABLE tracker ADD COLUMN IF NOT EXISTS symbol  TEXT    NOT NULL DEFAULT ''`,
-    `ALTER TABLE tracker ADD COLUMN IF NOT EXISTS sector  TEXT    NOT NULL DEFAULT ''`,
+    `ALTER TABLE tracker ADD COLUMN IF NOT EXISTS yr             INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE tracker ADD COLUMN IF NOT EXISTS mo             INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE tracker ADD COLUMN IF NOT EXISTS symbol         TEXT    NOT NULL DEFAULT ''`,
+    `ALTER TABLE tracker ADD COLUMN IF NOT EXISTS sector         TEXT    NOT NULL DEFAULT ''`,
+    `ALTER TABLE tracker ADD COLUMN IF NOT EXISTS "divAmtPerShare" NUMERIC NOT NULL DEFAULT 0`,
+    `ALTER TABLE tracker ADD COLUMN IF NOT EXISTS "divQty"       NUMERIC NOT NULL DEFAULT 0`,
   ]) { try { await pool.query(sql); } catch (_) {} }
   console.log("🗄️  Neon DB — tracker table ready");
 }
@@ -77,7 +81,9 @@ function mapRow(r) {
     currentPrice: Number(r.currentPrice ?? 0),
     year:         Number(r.yr           ?? 0),
     month:        Number(r.mo           ?? 0),
-    grossDiv:     Number(r.grossDiv     ?? 0),
+    divAmtPerShare: Number(r.divAmtPerShare ?? 0),
+    divQty:         Number(r.divQty         ?? 0),
+    grossDiv:       Number(r.grossDiv       ?? 0),
     tds:          Number(r.tds          ?? 0),
     netDiv:       Number(r.netDiv       ?? 0),
     notes:        String(r.notes        ?? "").trim(),
@@ -95,7 +101,9 @@ function sanitiseRow(r) {
     currentPrice: Number(r.currentPrice) || 0,
     yr:           Number(r.year)         || new Date().getFullYear(),
     mo:           Number(r.month)        || 1,
-    grossDiv:     Number(r.grossDiv)     || 0,
+    divAmtPerShare: Number(r.divAmtPerShare) || 0,
+    divQty:         Number(r.divQty)         || 0,
+    grossDiv:       Number(r.grossDiv)       || 0,
     tds:          Number(r.tds)          || 0,
     netDiv:       Number(r.netDiv)       || 0,
     notes:        String(r.notes        ?? "").trim(),
@@ -111,9 +119,10 @@ function mergeRows(rows) {
       map.set(key, { ...r });
     } else {
       const ex = map.get(key);
-      ex.grossDiv += r.grossDiv;
-      ex.tds      += r.tds;
-      ex.netDiv   += r.netDiv;
+      ex.divQty    += r.divQty;
+      ex.grossDiv  += r.grossDiv;
+      ex.tds       += r.tds;
+      ex.netDiv    += r.netDiv;
       if (r.qty          > 0) ex.qty          = r.qty;
       if (r.avgPrice     > 0) ex.avgPrice      = r.avgPrice;
       if (r.currentPrice > 0) ex.currentPrice  = r.currentPrice;
@@ -144,11 +153,11 @@ async function replaceAll(rows) {
       await client.query(
         `INSERT INTO tracker
            ("stockName",type,sector,symbol,qty,"avgPrice","currentPrice",
-            yr,mo,"grossDiv",tds,"netDiv",notes)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+            yr,mo,"divAmtPerShare","divQty","grossDiv",tds,"netDiv",notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
         [r.stockName, r.type, r.sector, r.symbol,
          r.qty, r.avgPrice, r.currentPrice,
-         r.yr, r.mo, r.grossDiv, r.tds, r.netDiv, r.notes]
+         r.yr, r.mo, r.divAmtPerShare, r.divQty, r.grossDiv, r.tds, r.netDiv, r.notes]
       );
     }
     await client.query("COMMIT");
@@ -187,8 +196,9 @@ function deriveDividends(rows) {
     .filter(r => r.grossDiv > 0 || r.netDiv > 0)
     .map((r, i) => ({
       id: String(r.id || i), year: r.year, month: r.month,
-      stockName: r.stockName, grossDiv: r.grossDiv,
-      tds: r.tds, netDiv: r.netDiv, notes: r.notes,
+      stockName: r.stockName,
+      divAmtPerShare: r.divAmtPerShare, divQty: r.divQty,
+      grossDiv: r.grossDiv, tds: r.tds, netDiv: r.netDiv, notes: r.notes,
     }));
 }
 
@@ -257,10 +267,10 @@ app.post("/api/tracker", async (req, res) => {
     await pool.query(
       `INSERT INTO tracker
          ("stockName",type,sector,symbol,qty,"avgPrice","currentPrice",
-          yr,mo,"grossDiv",tds,"netDiv",notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+          yr,mo,"divAmtPerShare","divQty","grossDiv",tds,"netDiv",notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
       [r.stockName,r.type,r.sector,r.symbol,r.qty,r.avgPrice,r.currentPrice,
-       r.yr,r.mo,r.grossDiv,r.tds,r.netDiv,r.notes]
+       r.yr,r.mo,r.divAmtPerShare,r.divQty,r.grossDiv,r.tds,r.netDiv,r.notes]
     );
     res.status(201).json(await getAll());
   } catch (err) { console.error(err); res.status(500).json({ error: "Insert failed" }); }
@@ -272,9 +282,10 @@ app.put("/api/tracker/:id", async (req, res) => {
     await pool.query(
       `UPDATE tracker SET "stockName"=$1,type=$2,sector=$3,symbol=$4,
        qty=$5,"avgPrice"=$6,"currentPrice"=$7,yr=$8,mo=$9,
-       "grossDiv"=$10,tds=$11,"netDiv"=$12,notes=$13 WHERE id=$14`,
+       "divAmtPerShare"=$10,"divQty"=$11,"grossDiv"=$12,tds=$13,"netDiv"=$14,notes=$15
+       WHERE id=$16`,
       [r.stockName,r.type,r.sector,r.symbol,r.qty,r.avgPrice,r.currentPrice,
-       r.yr,r.mo,r.grossDiv,r.tds,r.netDiv,r.notes,Number(req.params.id)]
+       r.yr,r.mo,r.divAmtPerShare,r.divQty,r.grossDiv,r.tds,r.netDiv,r.notes,Number(req.params.id)]
     );
     res.json(await getAll());
   } catch (err) { console.error(err); res.status(500).json({ error: "Update failed" }); }
@@ -309,10 +320,10 @@ app.post("/api/dividends", async (req, res) => {
     });
     await pool.query(
       `INSERT INTO tracker ("stockName",type,sector,symbol,qty,"avgPrice","currentPrice",
-         yr,mo,"grossDiv",tds,"netDiv",notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+         yr,mo,"divAmtPerShare","divQty","grossDiv",tds,"netDiv",notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
       [r.stockName,r.type,r.sector,r.symbol,r.qty,r.avgPrice,r.currentPrice,
-       r.yr,r.mo,r.grossDiv,r.tds,r.netDiv,r.notes]
+       r.yr,r.mo,r.divAmtPerShare,r.divQty,r.grossDiv,r.tds,r.netDiv,r.notes]
     );
     res.status(201).json(deriveDividends(await getAll()));
   } catch (err) { res.status(500).json({ error: "Failed" }); }

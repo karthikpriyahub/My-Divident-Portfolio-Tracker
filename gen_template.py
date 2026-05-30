@@ -46,20 +46,26 @@ master = stocks if stocks else FALLBACK
 MAX_ROWS = 500
 
 # ── Styles ────────────────────────────────────────────────────────────────────
-HDR_FILL  = PatternFill("solid", fgColor="1F3864")   # dark navy
-HDR_FONT  = Font(bold=True, color="FFFFFF", size=10)
-AUTO_FILL = PatternFill("solid", fgColor="E8F4FD")   # light blue — auto-filled cols
-ALT_FILL  = PatternFill("solid", fgColor="F5F9FF")
-HDR_ALIGN = Alignment(horizontal="center", vertical="center", wrap_text=True)
-THIN      = Side(style="thin", color="CCCCCC")
-BORDER    = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
+HDR_FILL   = PatternFill("solid", fgColor="1F3864")
+HDR_FONT   = Font(bold=True, color="FFFFFF", size=10)
+AUTO_FILL  = PatternFill("solid", fgColor="E8F4FD")
+INPUT_FILL = PatternFill("solid", fgColor="FFFBE6")
+CALC_FILL  = PatternFill("solid", fgColor="E8F8EE")
+ALT_FILL   = PatternFill("solid", fgColor="F5F9FF")
+HDR_ALIGN  = Alignment(horizontal="center", vertical="center", wrap_text=True)
+THIN       = Side(style="thin", color="CCCCCC")
+BORDER     = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 
 HEADERS = [
     "stockName", "type", "sector", "symbol",
     "qty", "avgPrice", "currentPrice",
-    "year", "month", "grossDiv", "tds", "netDiv", "notes",
+    "year", "month",
+    "divAmtPerShare", "divQty",
+    "grossDiv", "tds", "netDiv",
+    "notes",
 ]
-COL_WIDTHS = [26, 12, 14, 13, 8, 12, 14, 7, 7, 12, 10, 12, 24]
+COL_WIDTHS = [26, 12, 14, 13, 8, 12, 14, 7, 7, 16, 10, 12, 10, 12, 24]
+COL = {h: i+1 for i, h in enumerate(HEADERS)}
 
 # ── Workbook ──────────────────────────────────────────────────────────────────
 wb = Workbook()
@@ -83,10 +89,11 @@ ws.row_dimensions[1].height = 22
 
 # sample data rows (use existing rows if passed, else use defaults)
 SAMPLES_DEFAULT = [
-    ["Coal India Ltd",        "Equity", "Energy",         "COALINDIA",  100, 450,  480,  2025, 1, 2500, 250, 2250, "Interim"],
-    ["ITC Limited",           "Equity", "FMCG",           "ITC",        200, 400,  430,  2025, 2, 1800, 180, 1620, "Final"],
-    ["Nexus Select Trust",    "REIT",   "Real Estate",    "NEXUSSELECT",150, 130,  140,  2025, 3, 2100, 0,   2100, "Quarterly dist."],
-    ["India Grid Trust",      "InvIT",  "Infrastructure", "INDIGRID",   300, 135,  145,  2025, 3, 1500, 0,   1500, "Q4 dist."],
+    # stockName, type, sector, symbol, qty, avgPrice, currentPrice, year, month, divAmtPerShare, divQty, grossDiv, tds, netDiv, notes
+    ["Coal India Ltd",      "Equity","Energy",      "COALINDIA",  100, 450, 480, 2025, 1, 5.00, 100, 500,  50,  450,  "Interim"],
+    ["ITC Limited",         "Equity","FMCG",        "ITC",        200, 400, 430, 2025, 2, 7.50, 200, 1500, 150, 1350, "Final"],
+    ["Nexus Select Trust",  "REIT",  "Real Estate", "NEXUSSELECT",150, 130, 140, 2025, 3, 5.25, 150, 788,  0,   788,  "Quarterly dist."],
+    ["India Grid Trust",    "InvIT", "Infrastructure","INDIGRID", 300, 135, 145, 2025, 3, 3.50, 300, 1050, 0,   1050, "Q4 dist."],
 ]
 
 if exist_rows:
@@ -94,6 +101,7 @@ if exist_rows:
         [r.get("stockName",""), r.get("type",""), r.get("sector",""), r.get("symbol",""),
          r.get("qty",0), r.get("avgPrice",0), r.get("currentPrice",0),
          r.get("year",0), r.get("month",0),
+         r.get("divAmtPerShare",0), r.get("divQty",0),
          r.get("grossDiv",0), r.get("tds",0), r.get("netDiv",0), r.get("notes","")]
         for r in exist_rows
     ]
@@ -105,28 +113,54 @@ for row_idx, row_data in enumerate(SAMPLES, start=2):
         cell = ws.cell(row=row_idx, column=col_idx, value=val)
         cell.border    = BORDER
         cell.alignment = Alignment(vertical="center")
-        if col_idx in (2, 3, 4):               # auto-filled cols — light blue
-            cell.fill = AUTO_FILL
+        if col_idx in (COL["type"], COL["sector"], COL["symbol"]):
+            cell.fill = AUTO_FILL          # VLOOKUP cols
+        elif col_idx in (COL["divAmtPerShare"], COL["divQty"]):
+            cell.fill = INPUT_FILL         # user input highlight
+        elif col_idx in (COL["grossDiv"], COL["tds"], COL["netDiv"]):
+            cell.fill = CALC_FILL          # auto-calculated
 
-# ── VLOOKUP formulas for blank rows (type / sector / symbol auto-fill) ────────
-# StockMaster range: SM!$A$2:$D$N
-n_stocks = len(master)
-sm_range = f"StockMaster!$A$2:$D${n_stocks + 1}"
+# ── Formulas for blank rows ───────────────────────────────────────
+# VLOOKUP: type(B), sector(C), symbol(D)
+# AUTO-CALC: grossDiv(L)=J*K, tds(M)=L*10%, netDiv(N)=L-M
+n_stocks  = len(master)
+sm_range  = f"StockMaster!$A$2:$D${n_stocks + 1}"
+data_end  = len(SAMPLES) + 2    # first blank row
 
-for row in range(len(SAMPLES) + 2, MAX_ROWS + 1):
+for row in range(data_end, MAX_ROWS + 1):
     a = f"A{row}"
-    # B = type
-    cell_b = ws.cell(row=row, column=2, value=f'=IFERROR(VLOOKUP({a},{sm_range},2,0),"")')
-    cell_b.fill   = AUTO_FILL
-    cell_b.border = BORDER
-    # C = sector
-    cell_c = ws.cell(row=row, column=3, value=f'=IFERROR(VLOOKUP({a},{sm_range},3,0),"")')
-    cell_c.fill   = AUTO_FILL
-    cell_c.border = BORDER
-    # D = symbol
-    cell_d = ws.cell(row=row, column=4, value=f'=IFERROR(VLOOKUP({a},{sm_range},4,0),"")')
-    cell_d.fill   = AUTO_FILL
-    cell_d.border = BORDER
+    j = f"J{row}"   # divAmtPerShare
+    k = f"K{row}"   # divQty
+    l = f"L{row}"   # grossDiv
+
+    # VLOOKUP auto-fills (light blue)
+    for col_letter, col_idx in (("B", COL["type"]), ("C", COL["sector"]), ("D", COL["symbol"])):
+        idx = ["type","sector","symbol"].index(["type","sector","symbol"][["B","C","D"].index(col_letter)]) + 2
+        cell = ws.cell(row=row, column=col_idx,
+                       value=f'=IFERROR(VLOOKUP({a},{sm_range},{idx},0),"")')
+        cell.fill = AUTO_FILL; cell.border = BORDER
+
+    # divAmtPerShare (J) — yellow input
+    cj = ws.cell(row=row, column=COL["divAmtPerShare"])
+    cj.fill = INPUT_FILL; cj.border = BORDER
+
+    # divQty (K) — yellow input
+    ck = ws.cell(row=row, column=COL["divQty"])
+    ck.fill = INPUT_FILL; ck.border = BORDER
+
+    # grossDiv (L) = divAmtPerShare × divQty  — auto
+    cl = ws.cell(row=row, column=COL["grossDiv"],
+                 value=f"=IF(OR(J{row}<>0,K{row}<>0),J{row}*K{row},0)")
+    cl.fill = CALC_FILL; cl.border = BORDER
+
+    # netDiv (N) — yellow input (user types what they actually received)
+    cn = ws.cell(row=row, column=COL["netDiv"])
+    cn.fill = INPUT_FILL; cn.border = BORDER
+
+    # tds (M) = grossDiv − netDiv  — auto
+    cm = ws.cell(row=row, column=COL["tds"],
+                 value=f"=IF(L{row}<>0,L{row}-N{row},0)")
+    cm.fill = CALC_FILL; cm.border = BORDER
 
 # ── Dropdown data validation on column A (stockName) ─────────────────────────
 dv = DataValidation(
