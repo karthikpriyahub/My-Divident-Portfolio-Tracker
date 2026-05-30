@@ -125,10 +125,10 @@ export default function App() {
     const grp = stocks.filter((s) => s.type === t);
     return {
       type:t, count:grp.length,
-      investment: grp.reduce((s,x) => s + x.qty*x.avgPrice,     0),
-      currentVal: grp.reduce((s,x) => s + x.qty*x.currentPrice, 0),
+      investment: grp.reduce((s,x) => s + x.qty*x.avgPrice,          0),
+      currentVal: grp.reduce((s,x) => s + x.qty*x.currentPrice,      0),
       pnl:        grp.reduce((s,x) => s + (x.qty*x.currentPrice - x.qty*x.avgPrice), 0),
-      grossDiv:   grp.reduce((s,x) => s + (x.divQty||x.qty)*x.dividend, 0),
+      grossDiv:   grp.reduce((s,x) => s + (Number(x.dividend) || 0), 0), // already totals
     };
   });
 

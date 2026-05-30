@@ -51,10 +51,10 @@ export function calcStock(s) {
   const inv      = s.qty * s.avgPrice;
   const cur      = s.qty * s.currentPrice;
   const pnl      = cur - inv;
-  const divQty   = s.divQty || s.qty;          // use divQty if set, else fall back to qty
-  const gross    = divQty * s.dividend;
-  const net      = s.netDividend ?? 0;
-  const tdsAmt   = gross - net;
+  // dividend & netDividend are TOTAL amounts (already summed across all months in derivePortfolio)
+  const gross    = Number(s.dividend)    || 0;
+  const net      = Number(s.netDividend) || 0;
+  const tdsAmt   = Number(s.tdsTotal)   || Math.max(0, gross - net);
   const tdsPct   = gross > 0 ? (tdsAmt / gross) * 100 : 0;
   const retPct   = inv   > 0 ? (pnl    / inv)   * 100 : 0;
   const yieldPct = inv   > 0 ? (gross  / inv)   * 100 : 0;

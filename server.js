@@ -91,6 +91,13 @@ function mapRow(r) {
 }
 
 function sanitiseRow(r) {
+  const divAmtPerShare = Number(r.divAmtPerShare) || 0;
+  const divQty         = Number(r.divQty)         || 0;
+  // grossDiv: prefer explicit value; fall back to divAmtPerShare × divQty
+  const grossDiv = Number(r.grossDiv) || (divAmtPerShare * divQty) || 0;
+  const netDiv   = Number(r.netDiv)   || 0;
+  // tds: prefer explicit; fall back to grossDiv − netDiv
+  const tds      = Number(r.tds) || (grossDiv > 0 && netDiv > 0 ? Math.max(0, grossDiv - netDiv) : 0);
   return {
     stockName:    String(r.stockName    ?? "").trim(),
     type:         String(r.type         ?? "Equity").trim(),
@@ -101,12 +108,8 @@ function sanitiseRow(r) {
     currentPrice: Number(r.currentPrice) || 0,
     yr:           Number(r.year)         || new Date().getFullYear(),
     mo:           Number(r.month)        || 1,
-    divAmtPerShare: Number(r.divAmtPerShare) || 0,
-    divQty:         Number(r.divQty)         || 0,
-    grossDiv:       Number(r.grossDiv)       || 0,
-    tds:          Number(r.tds)          || 0,
-    netDiv:       Number(r.netDiv)       || 0,
-    notes:        String(r.notes        ?? "").trim(),
+    divAmtPerShare, divQty, grossDiv, tds, netDiv,
+    notes: String(r.notes ?? "").trim(),
   };
 }
 
@@ -169,25 +172,53 @@ async function replaceAll(rows) {
   }
 }
 
-// ── Derived views (legacy tab compatibility) ──────────────────────────────────
+// ── Derived views ─────────────────────────────────────────────────────────────
 function derivePortfolio(rows) {
   const map = new Map();
   for (const r of rows) {
     const key = r.stockName.toLowerCase();
     if (!map.has(key)) {
-      map.set(key, { ...r });
+      // First row sets stock-level details
+      map.set(key, {
+        stockName:    r.stockName,
+        type:         r.type,
+        sector:       r.sector,
+        symbol:       r.symbol,
+        qty:          r.qty,
+        avgPrice:     r.avgPrice,
+        currentPrice: r.currentPrice,
+        totalGross:   r.grossDiv  || 0,   // SUM all dividend rows
+        totalNet:     r.netDiv    || 0,
+        totalTds:     r.tds       || 0,
+      });
     } else {
       const ex = map.get(key);
+      // Keep latest non-zero stock details
       if (r.currentPrice > 0) ex.currentPrice = r.currentPrice;
       if (r.qty          > 0) ex.qty           = r.qty;
       if (r.avgPrice     > 0) ex.avgPrice       = r.avgPrice;
+      if (r.type)             ex.type           = r.type;
+      if (r.sector)           ex.sector         = r.sector;
+      if (r.symbol)           ex.symbol         = r.symbol;
+      // Always SUM dividend fields across all rows
+      ex.totalGross += (r.grossDiv || 0);
+      ex.totalNet   += (r.netDiv   || 0);
+      ex.totalTds   += (r.tds      || 0);
     }
   }
-  return [...map.values()].map(r => ({
-    name: r.stockName, type: r.type, qty: r.qty, divQty: r.qty,
-    avgPrice: r.avgPrice, currentPrice: r.currentPrice,
-    dividend: r.grossDiv, netDividend: r.netDiv,
-    sector: r.sector, symbol: r.symbol,
+  return [...map.values()].map(ex => ({
+    name:         ex.stockName,
+    type:         ex.type,
+    sector:       ex.sector,
+    symbol:       ex.symbol,
+    qty:          ex.qty,
+    divQty:       ex.qty,
+    avgPrice:     ex.avgPrice,
+    currentPrice: ex.currentPrice,
+    // dividend = total gross received (NOT per-share rate)
+    dividend:     ex.totalGross,
+    netDividend:  ex.totalNet,
+    tdsTotal:     ex.totalTds,
   }));
 }
 

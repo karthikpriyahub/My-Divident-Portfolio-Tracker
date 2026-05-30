@@ -28,10 +28,10 @@ export default function PortfolioView({
 
   const totalInv = stocks.reduce((s, x) => s + x.qty * x.avgPrice,     0);
   const totalCur = stocks.reduce((s, x) => s + x.qty * x.currentPrice, 0);
-  const totalDiv = stocks.reduce((s, x) => s + (x.divQty||x.qty) * x.dividend, 0);
+  const totalDiv = stocks.reduce((s, x) => s + (Number(x.dividend)    || 0), 0); // already totals
   const totalPnL = totalCur - totalInv;
-  const totalNet = stocks.reduce((s, x) => s + (x.netDividend ?? 0),   0);
-  const totalTDS = totalDiv - totalNet;   // gross - net = TDS deducted
+  const totalNet = stocks.reduce((s, x) => s + (Number(x.netDividend) || 0), 0);
+  const totalTDS = totalDiv - totalNet;
   const overall  = totalPnL + totalNet;
 
   const filtered = stocks
