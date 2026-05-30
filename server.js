@@ -298,10 +298,108 @@ app.delete("/api/tracker/:id", async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Delete failed" }); }
 });
 
-// ── Legacy endpoints (existing UI tabs) ───────────────────────────────────────
+// ── Legacy portfolio endpoints (Portfolio tab uses these) ───────────────────────
+// The Portfolio tab sends {name,type,qty,divQty,avgPrice,currentPrice,dividend,netDividend,sector}
+// and uses the array-index position as the "id" for update/delete.
+
+// helper: map portfolio payload → tracker sanitised row
+function portfolioToTracker(p) {
+  return {
+    stockName:    String(p.name        ?? "").trim(),
+    type:         String(p.type        ?? "Equity").trim(),
+    sector:       String(p.sector      ?? "").trim(),
+    symbol:       String(p.symbol      ?? "").trim().toUpperCase(),
+    qty:          Number(p.qty)          || 0,
+    avgPrice:     Number(p.avgPrice)     || 0,
+    currentPrice: Number(p.currentPrice) || 0,
+    yr:           new Date().getFullYear(),
+    mo:           0,
+    divAmtPerShare: Number(p.dividend)     || 0,
+    divQty:         Number(p.divQty || p.qty) || 0,
+    grossDiv:       0,
+    tds:            0,
+    netDiv:         0,
+    notes:          "",
+  };
+}
+
 app.get("/api/portfolio", async (_req, res) => {
   try { res.json(derivePortfolio(await getAll())); }
   catch (err) { res.status(500).json({ error: "Failed" }); }
+});
+
+// POST /api/portfolio — add new stock (zero-dividend placeholder row)
+app.post("/api/portfolio", async (req, res) => {
+  try {
+    const r = portfolioToTracker(req.body);
+    await pool.query(
+      `INSERT INTO tracker
+         ("stockName",type,sector,symbol,qty,"avgPrice","currentPrice",
+          yr,mo,"divAmtPerShare","divQty","grossDiv",tds,"netDiv",notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+      [r.stockName,r.type,r.sector,r.symbol,r.qty,r.avgPrice,r.currentPrice,
+       r.yr,r.mo,r.divAmtPerShare,r.divQty,r.grossDiv,r.tds,r.netDiv,r.notes]
+    );
+    res.status(201).json(derivePortfolio(await getAll()));
+  } catch (err) { console.error(err); res.status(500).json({ error:"Insert failed" }); }
+});
+
+// PUT /api/portfolio/:idx — update stock details across all its tracker rows
+// Uses req.body.name to identify the stock — no index lookup needed
+app.put("/api/portfolio/:idx", async (req, res) => {
+  try {
+    const p         = req.body;
+    const stockName = String(p.name ?? "").trim();
+    if (!stockName) return res.status(400).json({ error:"Stock name is required" });
+
+    await pool.query(
+      `UPDATE tracker SET
+         type=$1, sector=$2, symbol=$3,
+         qty=$4, "avgPrice"=$5, "currentPrice"=$6,
+         "divAmtPerShare"=$7, "divQty"=$8
+       WHERE "stockName"=$9`,
+      [
+        String(p.type   ?? "Equity"),
+        String(p.sector ?? ""),
+        String(p.symbol ?? "").toUpperCase(),
+        Number(p.qty)          || 0,
+        Number(p.avgPrice)     || 0,
+        Number(p.currentPrice) || 0,
+        Number(p.dividend)     || 0,
+        Number(p.divQty || p.qty) || 0,
+        stockName,
+      ]
+    );
+    res.json(derivePortfolio(await getAll()));
+  } catch (err) { console.error(err); res.status(500).json({ error:"Update failed" }); }
+});
+
+// DELETE /api/portfolio/:idx — delete all tracker rows for a stock by name
+// name is passed as query param to avoid double DB call
+app.delete("/api/portfolio/:idx", async (req, res) => {
+  try {
+    const stockName = String(req.query.name ?? "").trim();
+    if (!stockName) return res.status(400).json({ error:"Stock name required as ?name= param" });
+    await pool.query(`DELETE FROM tracker WHERE "stockName"=$1`, [stockName]);
+    res.json(derivePortfolio(await getAll()));
+  } catch (err) { console.error(err); res.status(500).json({ error:"Delete failed" }); }
+});
+
+// PUT /api/portfolio — bulk replace all stocks
+app.put("/api/portfolio", async (req, res) => {
+  try {
+    const rows = (req.body ?? []).map(portfolioToTracker);
+    await replaceAll(rows);
+    res.json(derivePortfolio(await getAll()));
+  } catch (err) { console.error(err); res.status(500).json({ error:"Bulk update failed" }); }
+});
+
+// DELETE /api/portfolio — clear all
+app.delete("/api/portfolio", async (req, res) => {
+  try {
+    await pool.query("DELETE FROM tracker");
+    res.json([]);
+  } catch (err) { console.error(err); res.status(500).json({ error:"Clear failed" }); }
 });
 
 app.get("/api/dividends", async (_req, res) => {

@@ -111,9 +111,10 @@ export default function App() {
   };
 
   const handleDelete = async (idx) => {
-    if (!window.confirm(`Remove "${stocks[idx]?.name}"?`)) return;
+    const stock = stocks[idx];
+    if (!window.confirm(`Remove "${stock?.name}"?`)) return;
     setSaving(true);
-    try   { setStocks(await api.remove(idx)); showToast("Stock removed."); }
+    try   { setStocks(await api.remove(idx, stock?.name)); showToast("Stock removed."); }
     catch { showToast("Delete failed.", false); }
     finally { setSaving(false); }
   };

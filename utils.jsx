@@ -8,9 +8,9 @@ const api = {
   load:       ()           => fetch("/api/portfolio").then(json),
   meta:       ()           => fetch("/api/portfolio/meta").then(json),
   add:        (s)          => fetch("/api/portfolio", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(s) }).then(json),
-  update:     (idx, s)     => fetch(`/api/portfolio/${idx}`, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(s) }).then(json),
-  bulkUpdate: (stocks)     => fetch("/api/portfolio", { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(stocks) }).then(json),
-  remove:     (idx)        => fetch(`/api/portfolio/${idx}`, { method:"DELETE" }).then(json),
+  update:     (idx, s)     => fetch(`/api/portfolio/${idx}`, { method:"PUT",    headers:{"Content-Type":"application/json"}, body:JSON.stringify(s) }).then(json),
+  bulkUpdate: (stocks)     => fetch("/api/portfolio",        { method:"PUT",    headers:{"Content-Type":"application/json"}, body:JSON.stringify(stocks) }).then(json),
+  remove:     (idx, name)  => fetch(`/api/portfolio/${idx}?name=${encodeURIComponent(name)}`, { method:"DELETE" }).then(json),
   clearAll:   ()           => fetch("/api/portfolio", { method:"DELETE" }).then(json),
 };
 
