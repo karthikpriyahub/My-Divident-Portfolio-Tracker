@@ -22,7 +22,7 @@ const QUARTERS    = [
 
 const EMPTY_ENTRY = {
   stockName: "", divAmtPerShare: "", divQty: "",
-  grossDiv: "", tds: "", netDiv: "", notes: "",
+  grossDiv: "", netDiv: "",
 };
 
 const apiDiv = {
@@ -40,7 +40,7 @@ const apiDiv = {
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-const fmt = (n) => `₹${Math.round(Number(n) || 0).toLocaleString()}`;
+const fmt = (n) => `₹${Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 3, maximumFractionDigits: 3 })}`;
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -79,9 +79,7 @@ export default function DividendTrackerView({ stocks, showToast, refreshKey = 0 
       divAmtPerShare: entry.divAmtPerShare,
       divQty:         entry.divQty,
       grossDiv:       entry.grossDiv,
-      tds:            entry.tds,
       netDiv:         entry.netDiv,
-      notes:          entry.notes,
     });
     setEditId(entry.id);
     setModal({ month: entry.month });
@@ -93,18 +91,11 @@ export default function DividendTrackerView({ stocks, showToast, refreshKey = 0 
     const { name, value } = e.target;
     setForm((f) => {
       const next = { ...f, [name]: value };
-      // grossDiv = divAmtPerShare × divQty
+      // grossDiv = divAmtPerShare × divQty (full precision — no rounding)
       if (name === "divAmtPerShare" || name === "divQty") {
-        const rate  = Number(name === "divAmtPerShare" ? value : next.divAmtPerShare) || 0;
-        const qty   = Number(name === "divQty"         ? value : next.divQty)         || 0;
-        const gross = Math.round(rate * qty * 100) / 100;
-        next.grossDiv = gross || "";
-      }
-      // tds = grossDiv − netDiv (recalc whenever either changes)
-      if (name === "divAmtPerShare" || name === "divQty" || name === "netDiv" || name === "grossDiv") {
-        const gross = Number(next.grossDiv) || 0;
-        const net   = Number(next.netDiv)   || 0;
-        next.tds = gross && net ? Math.max(0, gross - net) : "";
+        const rate  = parseFloat(name === "divAmtPerShare" ? value : next.divAmtPerShare) || 0;
+        const qty   = parseFloat(name === "divQty"         ? value : next.divQty)         || 0;
+        next.grossDiv = rate && qty ? parseFloat((rate * qty).toFixed(3)) : "";
       }
       return next;
     });
@@ -118,9 +109,8 @@ export default function DividendTrackerView({ stocks, showToast, refreshKey = 0 
       stockName:      name,
       divAmtPerShare: stock ? (stock.dividend || "") : "",
       divQty:         stock ? (stock.qty       || "") : "",
-      grossDiv:       stock ? Math.round((stock.dividend || 0) * (stock.qty || 0)) : "",
-      netDiv:         "",   // user enters what they actually received
-      tds:            "",   // auto-fills once netDiv is typed
+      grossDiv:       stock ? parseFloat(((stock.dividend || 0) * (stock.qty || 0)).toFixed(3)) : "",
+      netDiv:         "",
     }));
   };
 
@@ -128,18 +118,21 @@ export default function DividendTrackerView({ stocks, showToast, refreshKey = 0 
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.stockName || !form.grossDiv || !form.netDiv) {
+    const gross = parseFloat(form.grossDiv) || 0;
+    const net   = parseFloat(form.netDiv)   || 0;
+    const tds   = parseFloat((Math.max(0, gross - net)).toFixed(3));
+    if (!form.stockName || !gross || !net) {
       showToast("Stock, Gross Div and Net Div are required.", false); return;
     }
     const payload = {
       year, month: modal.month,
       stockName:      form.stockName,
-      divAmtPerShare: Number(form.divAmtPerShare || 0),
-      divQty:         Number(form.divQty         || 0),
-      grossDiv:       Number(form.grossDiv        || 0),
-      tds:            Number(form.tds             || 0),
-      netDiv:         Number(form.netDiv          || 0),
-      notes:          form.notes || "",
+      divAmtPerShare: parseFloat(form.divAmtPerShare) || 0,
+      divQty:         parseFloat(form.divQty)         || 0,
+      grossDiv:       gross,
+      tds,
+      netDiv:         net,
+      notes:          "",
     };
     setSaving(true);
     try {
@@ -427,76 +420,53 @@ export default function DividendTrackerView({ stocks, showToast, refreshKey = 0 
                   )}
                 </div>
 
-                {/* Div Rate + Qty → drives auto-calc */}
+                {/* Div Rate + Qty */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs text-yellow-400 uppercase tracking-wider mb-1 block">💰 Div Amount / Share (₹) *</label>
-                    <Input name="divAmtPerShare" type="number" step="0.01"
-                      placeholder="e.g. 5.50"
+                    <label className="text-xs text-yellow-400 uppercase tracking-wider mb-1 block">💰 Div Amount / Share (₹)</label>
+                    <Input name="divAmtPerShare" type="number" step="0.001"
+                      placeholder="e.g. 5.500"
                       value={form.divAmtPerShare} onChange={handleField}
                       className="bg-slate-800 border-yellow-600/50 h-11 rounded-xl text-white text-sm" />
                   </div>
                   <div>
-                    <label className="text-xs text-yellow-400 uppercase tracking-wider mb-1 block">📦 Dividend Quantity *</label>
-                    <Input name="divQty" type="number"
+                    <label className="text-xs text-yellow-400 uppercase tracking-wider mb-1 block">📦 Dividend Quantity</label>
+                    <Input name="divQty" type="number" step="1"
                       placeholder="e.g. 100"
                       value={form.divQty} onChange={handleField}
                       className="bg-slate-800 border-yellow-600/50 h-11 rounded-xl text-white text-sm" />
                   </div>
                 </div>
 
-                {/* Auto-calculated fields */}
-                <div className="bg-emerald-950/40 border border-emerald-800/30 rounded-xl p-3">
-                  <p className="text-[10px] text-emerald-500 uppercase tracking-wider mb-2">⚡ Calculated from above</p>
-                  <div className="grid grid-cols-3 gap-3">
-
-                    {/* grossDiv — auto (green) */}
-                    <div>
-                      <label className="text-[10px] text-slate-400 uppercase mb-1 block">Gross Div (₹)</label>
-                      <Input name="grossDiv" type="number" value={form.grossDiv}
-                        onChange={handleField} placeholder="auto"
-                        className="bg-slate-900/60 border-slate-700 h-10 rounded-xl text-sm text-yellow-300" />
-                    </div>
-
-                    {/* netDiv — USER TYPES THIS */}
-                    <div>
-                      <label className="text-[10px] text-yellow-400 uppercase mb-1 block">🟡 Net Div (₹) *</label>
-                      <Input name="netDiv" type="number" value={form.netDiv}
-                        onChange={handleField} placeholder="actual received"
-                        className="bg-slate-800 border-yellow-600/50 h-10 rounded-xl text-sm text-emerald-300" />
-                    </div>
-
-                    {/* tds — auto = grossDiv − netDiv */}
-                    <div>
-                      <label className="text-[10px] text-slate-400 uppercase mb-1 block">TDS = Gross − Net</label>
-                      <Input name="tds" type="number" value={form.tds}
-                        onChange={handleField} placeholder="auto"
-                        className="bg-slate-900/60 border-slate-700 h-10 rounded-xl text-sm text-red-300" />
-                    </div>
-
+                {/* Gross (auto) + Net (user types) */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] text-slate-400 uppercase mb-1 block">⚡ Gross Div (₹) — auto</label>
+                    <Input name="grossDiv" type="number" step="0.001"
+                      placeholder="auto from Rate × Qty"
+                      value={form.grossDiv} onChange={handleField}
+                      className="bg-slate-900/60 border-slate-700 h-11 rounded-xl text-sm text-yellow-300" />
                   </div>
-                  <p className="text-[9px] text-slate-600 mt-2">Gross = Rate × Qty · Type your Net Div → TDS fills automatically.</p>
+                  <div>
+                    <label className="text-xs text-yellow-400 uppercase tracking-wider mb-1 block">🟡 Net Div (₹) *</label>
+                    <Input name="netDiv" type="number" step="0.001"
+                      placeholder="actual received e.g. 450.000"
+                      value={form.netDiv} onChange={handleField}
+                      className="bg-slate-800 border-yellow-600/50 h-11 rounded-xl text-sm text-emerald-300" />
+                  </div>
                 </div>
 
-                {/* Notes */}
-                <div>
-                  <label className="text-xs text-slate-400 uppercase tracking-wider mb-1 block">Notes (optional)</label>
-                  <Input name="notes" placeholder="e.g. FY26 final dividend, special interim…"
-                    value={form.notes} onChange={handleField}
-                    className="bg-slate-800 border-slate-700 h-11 rounded-xl text-white text-sm" />
-                </div>
-
-                {/* Live TDS info */}
+                {/* TDS — derived display, not an input */}
                 {form.grossDiv && form.netDiv && (
-                  <div className="bg-white/5 rounded-xl p-3 text-xs text-slate-400 flex gap-6">
-                    <span>Gross: <strong className="text-yellow-400">{fmt(form.grossDiv)}</strong></span>
-                    <span>TDS: <strong className="text-red-400">{fmt(Number(form.grossDiv) - Number(form.netDiv))}</strong></span>
-                    <span>Net: <strong className="text-emerald-400">{fmt(form.netDiv)}</strong></span>
-                    <span>Eff.TDS%: <strong className="text-orange-400">
-                      {form.grossDiv > 0 ? (((Number(form.grossDiv) - Number(form.netDiv)) / Number(form.grossDiv)) * 100).toFixed(1) : 0}%
-                    </strong></span>
+                  <div className="bg-slate-800/60 border border-slate-700 rounded-xl px-4 py-3 flex items-center justify-between text-sm">
+                    <span className="text-slate-400">TDS (auto = Gross − Net)</span>
+                    <span className="font-bold text-red-400">
+                      {fmt(Math.max(0, (parseFloat(form.grossDiv)||0) - (parseFloat(form.netDiv)||0)))}
+                    </span>
                   </div>
                 )}
+
+
 
                 <div className="flex gap-3 pt-1">
                   <Button type="submit" disabled={saving}
