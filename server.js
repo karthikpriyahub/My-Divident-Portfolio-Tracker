@@ -66,6 +66,76 @@ async function initDB() {
     `ALTER TABLE tracker ADD COLUMN IF NOT EXISTS "divQty"       NUMERIC NOT NULL DEFAULT 0`,
   ]) { try { await pool.query(sql); } catch (_) {} }
   console.log("🗄️  Neon DB — tracker table ready");
+
+  // ── Budget table ──────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS budget (
+      id               SERIAL  PRIMARY KEY,
+      yr               INTEGER NOT NULL,
+      mo               INTEGER NOT NULL,
+      -- Income
+      income1          NUMERIC NOT NULL DEFAULT 0,
+      income2          NUMERIC NOT NULL DEFAULT 0,
+      income_other     NUMERIC NOT NULL DEFAULT 0,
+      -- Expenses
+      house_expenses   NUMERIC NOT NULL DEFAULT 0,
+      chennai_rent     NUMERIC NOT NULL DEFAULT 0,
+      nainika_po       NUMERIC NOT NULL DEFAULT 0,
+      iob_expense      NUMERIC NOT NULL DEFAULT 0,
+      emi              NUMERIC NOT NULL DEFAULT 0,
+      mobile_recharge  NUMERIC NOT NULL DEFAULT 0,
+      mobile_who       TEXT    NOT NULL DEFAULT '',
+      mobile_when      TEXT    NOT NULL DEFAULT '',
+      -- Savings
+      po_my_account    NUMERIC NOT NULL DEFAULT 0,
+      canara_amma      NUMERIC NOT NULL DEFAULT 0,
+      po_wife_account  NUMERIC NOT NULL DEFAULT 0,
+      -- Investments
+      ppf              NUMERIC NOT NULL DEFAULT 0,
+      lic1             NUMERIC NOT NULL DEFAULT 0,
+      lic2             NUMERIC NOT NULL DEFAULT 0,
+      mf_sip           NUMERIC NOT NULL DEFAULT 0,
+      dividend_stocks  NUMERIC NOT NULL DEFAULT 0,
+      UNIQUE (yr, mo)
+    )
+  `);
+  console.log("🗄️  Neon DB — budget table ready");
+
+  // ── Budget Plan table (expected amounts, one row per year) ───────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS budget_plan (
+      id               SERIAL  PRIMARY KEY,
+      yr               INTEGER NOT NULL UNIQUE,
+      income1          NUMERIC NOT NULL DEFAULT 0,
+      income2          NUMERIC NOT NULL DEFAULT 0,
+      income_other     NUMERIC NOT NULL DEFAULT 0,
+      house_expenses   NUMERIC NOT NULL DEFAULT 0,
+      chennai_rent     NUMERIC NOT NULL DEFAULT 0,
+      nainika_po       NUMERIC NOT NULL DEFAULT 0,
+      iob_expense      NUMERIC NOT NULL DEFAULT 0,
+      emi              NUMERIC NOT NULL DEFAULT 0,
+      mobile_recharge  NUMERIC NOT NULL DEFAULT 0,
+      mobile_who       TEXT    NOT NULL DEFAULT '',
+      mobile_when      TEXT    NOT NULL DEFAULT '',
+      po_my_account    NUMERIC NOT NULL DEFAULT 0,
+      canara_amma      NUMERIC NOT NULL DEFAULT 0,
+      po_wife_account  NUMERIC NOT NULL DEFAULT 0,
+      ppf              NUMERIC NOT NULL DEFAULT 0,
+      lic1             NUMERIC NOT NULL DEFAULT 0,
+      lic2             NUMERIC NOT NULL DEFAULT 0,
+      mf_sip           NUMERIC NOT NULL DEFAULT 0,
+      dividend_stocks  NUMERIC NOT NULL DEFAULT 0
+    )
+  `);
+  console.log("🗄️  Neon DB — budget_plan table ready");
+
+  // Migrate existing tables — add mobile_who/when if not present
+  for (const tbl of ["budget", "budget_plan"]) {
+    for (const sql of [
+      `ALTER TABLE ${tbl} ADD COLUMN IF NOT EXISTS mobile_who  TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE ${tbl} ADD COLUMN IF NOT EXISTS mobile_when TEXT NOT NULL DEFAULT ''`,
+    ]) { try { await pool.query(sql); } catch (_) {} }
+  }
 }
 
 // ── Row helpers ───────────────────────────────────────────────────────────────
@@ -356,7 +426,7 @@ function portfolioToTracker(p) {
 
 app.get("/api/portfolio", async (_req, res) => {
   try { res.json(derivePortfolio(await getAll())); }
-  catch (err) { res.status(500).json({ error: "Failed" }); }
+  catch (err) { res.json([]); }  // never crash the UI — return empty array
 });
 
 // POST /api/portfolio — add new stock (zero-dividend placeholder row)
@@ -542,6 +612,94 @@ app.post("/api/tracker/upload", rawExcel, async (req, res) => {
   }
 });
 
+// ── Budget API routes ─────────────────────────────────────────────────────
+
+const BUDGET_COLS = [
+  "income1","income2","income_other",
+  "house_expenses","chennai_rent","nainika_po","iob_expense","emi","mobile_recharge",
+  "po_my_account","canara_amma","po_wife_account",
+  "ppf","lic1","lic2","mf_sip","dividend_stocks",
+];
+
+// Text-only extra cols (not numeric — handled separately)
+const TEXT_COLS = ["mobile_who", "mobile_when"];
+
+function budgetRow(r) {
+  const row = { id: r.id, year: Number(r.yr), month: Number(r.mo) };
+  for (const c of BUDGET_COLS) row[c] = Number(r[c] ?? 0);
+  for (const c of TEXT_COLS)   row[c] = String(r[c] ?? "");
+  return row;
+}
+
+// GET plan for a year
+app.get("/api/budget-plan/:year", async (req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT * FROM budget_plan WHERE yr=$1`, [Number(req.params.year)]);
+    res.json(rows[0] ? budgetRow({ ...rows[0], mo: 0 }) : null);
+  } catch { res.json(null); }
+});
+
+// POST/PUT — upsert plan for a year
+app.post("/api/budget-plan", async (req, res) => {
+  try {
+    const b       = req.body;
+    const yr      = Number(b.year) || new Date().getFullYear();
+    const numVals = BUDGET_COLS.map(c => Number(b[c]) || 0);
+    const txtVals = TEXT_COLS.map(c => String(b[c] || "").trim());
+    const allCols = [...BUDGET_COLS, ...TEXT_COLS];
+    const allVals = [...numVals, ...txtVals];
+    const setCols = allCols.map((c, i) => `"${c}"=$${i + 2}`).join(",");
+    const { rows } = await pool.query(
+      `INSERT INTO budget_plan (yr, ${allCols.map(c=>`"${c}"`).join(",")})
+       VALUES ($1, ${allCols.map((_,i)=>`$${i+2}`).join(",")})
+       ON CONFLICT (yr) DO UPDATE SET ${setCols}
+       RETURNING *`,
+      [yr, ...allVals]
+    );
+    res.json(budgetRow({ ...rows[0], mo: 0 }));
+  } catch (err) { console.error(err); res.status(500).json({ error: "Plan save failed" }); }
+});
+
+// GET all months for a year
+app.get("/api/budget/:year", async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM budget WHERE yr=$1 ORDER BY mo`, [Number(req.params.year)]
+    );
+    res.json(rows.map(budgetRow));
+  } catch (err) { res.json([]); }  // never crash the UI
+});
+
+// POST/PUT — upsert a month (one row per yr+mo)
+app.post("/api/budget", async (req, res) => {
+  try {
+    const b       = req.body;
+    const yr      = Number(b.year)  || new Date().getFullYear();
+    const mo      = Number(b.month) || 1;
+    const numVals = BUDGET_COLS.map(c => Number(b[c]) || 0);
+    const txtVals = TEXT_COLS.map(c => String(b[c] || "").trim());
+    const allCols = [...BUDGET_COLS, ...TEXT_COLS];
+    const allVals = [...numVals, ...txtVals];
+    const setCols = allCols.map((c, i) => `"${c}"=$${i + 3}`).join(",");
+    const { rows } = await pool.query(
+      `INSERT INTO budget (yr, mo, ${allCols.map(c => `"${c}"`).join(",")})
+       VALUES ($1, $2, ${allCols.map((_,i) => `$${i+3}`).join(",")})
+       ON CONFLICT (yr, mo) DO UPDATE SET ${setCols}
+       RETURNING *`,
+      [yr, mo, ...allVals]
+    );
+    res.json(budgetRow(rows[0]));
+  } catch (err) { console.error(err); res.status(500).json({ error: "Upsert failed" }); }
+});
+
+// DELETE a month entry
+app.delete("/api/budget/:id", async (req, res) => {
+  try {
+    await pool.query(`DELETE FROM budget WHERE id=$1`, [Number(req.params.id)]);
+    res.json({ ok: true });
+  } catch (err) { console.error(err); res.status(500).json({ error: "Delete failed" }); }
+});
+
 // ── Serve React in production ─────────────────────────────────────────────────
 if (IS_PROD && existsSync(DIST_DIR)) {
   app.use(express.static(DIST_DIR));
@@ -553,7 +711,7 @@ if (IS_PROD && existsSync(DIST_DIR)) {
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 app.listen(PORT, async () => {
-  console.log(`🚀 DivTracker → http://localhost:${PORT}`);
+  console.log(`🦢 FinNest → http://localhost:${PORT}`);
   try {
     await initDB();
   } catch (err) {
