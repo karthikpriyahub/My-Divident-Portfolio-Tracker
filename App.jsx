@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { CheckCircle2, AlertTriangle, TrendingUp,
   BarChart3, Database, Target, BookOpen, BarChart2 } from "lucide-react";
 import api, { EMPTY_FORM } from "./utils.jsx";
+import Login, { useAuth }          from "./Login.jsx";
 import PortfolioView        from "./PortfolioView.jsx";
 import { ChartsView, DataStoreView } from "./AnalyticsViews.jsx";
 import { GoalView } from "./DashboardViews.jsx";
@@ -23,6 +24,7 @@ const TABS = [
 // ── Root App ──────────────────────────────────────────────────────────────────
 
 export default function App() {
+  const { authed, login, logout } = useAuth();
   const [activeTab, setActiveTab] = useState("portfolio");
   const [stocks,    setStocks]    = useState([]);
   const [loading,   setLoading]   = useState(true);
@@ -129,7 +131,9 @@ export default function App() {
     };
   });
 
-  // ── render ────────────────────────────────────────────────────────────────
+  // ── render ───────────────────────────────────────────────────────────────
+
+  if (!authed) return <Login onLogin={login} />;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black text-white">

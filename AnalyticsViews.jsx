@@ -416,11 +416,10 @@ export function DataStoreView({ stocks, onRefresh, onStocksChange, onRefreshAll,
         showToast(err.error || "Upload failed.", false);
         return;
       }
-      const { stocks, divs } = await res.json();
-      onStocksChange(stocks);
+      const { rows, count } = await res.json();
       if (onRefreshAll) await onRefreshAll();
       await loadMeta();
-      showToast(`✅ Loaded — ${stocks.length} stocks + ${divs.length} dividend entries from tracker.xlsx!`);
+      showToast(`✅ Neon synced — ${count} rows loaded into tracker table!`);
     } catch {
       showToast("Upload failed. Make sure it's a valid tracker.xlsx file.", false);
     } finally {
@@ -438,118 +437,144 @@ export function DataStoreView({ stocks, onRefresh, onStocksChange, onRefreshAll,
     <>
       {/* Header */}
       <div className="mb-6">
-        <h2 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent mb-2">
+        <h2 className="text-4xl font-bold bg-gradient-to-r from-green-400 to-emerald-400 bg-clip-text text-transparent mb-2">
           Excel Data Store
         </h2>
         <p className="text-slate-400 text-sm">
-          One Excel file — Portfolio + Dividends. Upload to restore. Download to save. Repeat every session.
+          One Excel file — Portfolio + Dividends. Upload once → syncs both Neon tables instantly.
         </p>
       </div>
 
-      {/* 📤 Upload section */}
-      <Card className="bg-white/10 border-white/10 backdrop-blur-xl rounded-3xl shadow-2xl mb-6">
+      {/* Step 1 — Download template */}
+      <Card className="bg-white/10 border-white/10 backdrop-blur-xl rounded-3xl shadow-2xl mb-5">
         <CardContent className="p-6">
-          <h3 className="text-base font-bold text-white mb-1">📤 Upload tracker.xlsx</h3>
-          <p className="text-xs text-slate-400 mb-5">
-            Upload your saved <span className="text-green-400 font-mono">tracker.xlsx</span> to restore
-            all portfolio and dividend data instantly. Changes you make after uploading auto-save back to Excel.
-          </p>
-
-          {/* Drop zone */}
-          <div
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={onDrop}
-            onClick={() => fileRef.current?.click()}
-            className="border-2 border-dashed border-green-500/40 hover:border-green-400 rounded-2xl p-10
-              text-center cursor-pointer transition-all hover:bg-white/5"
-          >
-            <input ref={fileRef} type="file" accept=".xlsx" className="hidden"
-              onChange={(e) => handleUpload(e.target.files[0])} />
-
-            {uploading ? (
-              <div className="flex flex-col items-center gap-3">
-                <Loader2 size={36} className="animate-spin text-green-400" />
-                <p className="text-slate-300 font-semibold">Importing tracker.xlsx…</p>
-                <p className="text-slate-500 text-xs">Updating Portfolio + Dividends + all tabs</p>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-3">
-                <div className="p-4 rounded-full bg-green-500/15">
-                  <FileSpreadsheet size={36} className="text-green-400" />
-                </div>
-                <p className="text-white font-bold text-base">Drag & drop tracker.xlsx here</p>
-                <p className="text-slate-400 text-sm">or click to browse your files</p>
-                <p className="text-green-400 font-mono text-xs bg-green-500/10 px-3 py-1 rounded-full">
-                  tracker.xlsx — Sheet 1: Portfolio · Sheet 2: Dividends
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Column guide */}
-          <details className="mt-4">
-            <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-300 transition">
-              📝 Expected column headers (click to expand)
-            </summary>
-            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="bg-slate-900/60 rounded-xl p-3">
-                <p className="text-xs text-green-400 font-bold mb-2">Sheet 1 — Portfolio</p>
-                <p className="font-mono text-[10px] text-slate-400 leading-relaxed">
-                  name · type · qty · divQty · avgPrice<br />
-                  currentPrice · dividend · netDividend · sector
-                </p>
-              </div>
-              <div className="bg-slate-900/60 rounded-xl p-3">
-                <p className="text-xs text-blue-400 font-bold mb-2">Sheet 2 — Dividends</p>
-                <p className="font-mono text-[10px] text-slate-400 leading-relaxed">
-                  id · year · month · stockName<br />
-                  grossDiv · tds · netDiv · notes
-                </p>
+          <div className="flex items-start gap-4">
+            <div className="w-10 h-10 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0 text-emerald-400 font-black text-sm">1</div>
+            <div className="flex-1">
+              <h3 className="text-base font-bold text-white mb-1">Download the Template</h3>
+              <p className="text-xs text-slate-400 mb-4">
+                Get a pre-filled Excel with 3 sheets: <span className="text-white font-semibold">Instructions</span>,
+                <span className="text-emerald-400 font-mono"> Portfolio</span> and
+                <span className="text-blue-400 font-mono"> Dividends</span>.
+                Fill in your real data, delete sample rows, save and upload below.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  onClick={() => { window.open("/api/tracker/template","_blank"); showToast("📥 Downloading DivTracker_Template.xlsx…"); }}
+                  className="h-10 px-5 rounded-xl bg-gradient-to-r from-emerald-500 to-green-600 text-white font-bold flex items-center gap-2 text-sm">
+                  <Download size={15} /> Download Template
+                </Button>
+                <Button
+                  onClick={() => { window.open("/api/tracker/download","_blank"); showToast("📥 Exporting current data…"); }}
+                  className="h-10 px-5 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold flex items-center gap-2 text-sm">
+                  <Download size={15} /> Export Current Data
+                </Button>
               </div>
             </div>
-          </details>
+          </div>
         </CardContent>
       </Card>
 
-      {/* File info cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
-        {metaLoading ? (
-          <div className="col-span-4 flex items-center gap-3 text-slate-400 py-6">
-            <Loader2 size={20} className="animate-spin" /> Loading…
+      {/* Step 2 — Upload & sync */}
+      <Card className="bg-white/10 border-white/10 backdrop-blur-xl rounded-3xl shadow-2xl mb-5">
+        <CardContent className="p-6">
+          <div className="flex items-start gap-4">
+            <div className="w-10 h-10 rounded-full bg-blue-500/20 border border-blue-500/40 flex items-center justify-center shrink-0 text-blue-400 font-black text-sm">2</div>
+            <div className="flex-1">
+              <h3 className="text-base font-bold text-white mb-1">Upload &amp; Sync All Data to Neon</h3>
+              <p className="text-xs text-slate-400 mb-4">
+                Upload your filled <span className="text-emerald-400 font-mono">.xlsx</span> — both
+                <span className="text-white font-semibold"> Portfolio</span> and
+                <span className="text-white font-semibold"> Dividends</span> tables get replaced in
+                Neon PostgreSQL. Every tab in the app refreshes automatically.
+              </p>
+              {/* Drop zone */}
+              <div
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={onDrop}
+                onClick={() => fileRef.current?.click()}
+                className="border-2 border-dashed border-blue-500/40 hover:border-blue-400 rounded-2xl p-10 text-center cursor-pointer transition-all hover:bg-white/5 mb-4"
+              >
+                <input ref={fileRef} type="file" accept=".xlsx" className="hidden"
+                  onChange={(e) => handleUpload(e.target.files[0])} />
+                {uploading ? (
+                  <div className="flex flex-col items-center gap-3">
+                    <Loader2 size={36} className="animate-spin text-blue-400" />
+                    <p className="text-slate-300 font-semibold">Syncing to Neon…</p>
+                    <p className="text-slate-500 text-xs">Updating Portfolio + Dividends tables</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="p-4 rounded-full bg-blue-500/15">
+                      <FileSpreadsheet size={36} className="text-blue-400" />
+                    </div>
+                    <p className="text-white font-bold text-base">Drag &amp; drop your .xlsx here</p>
+                    <p className="text-slate-400 text-sm">or click to browse</p>
+                    <div className="flex gap-2 flex-wrap justify-center">
+                      <span className="text-emerald-400 font-mono text-xs bg-emerald-500/10 px-3 py-1 rounded-full">Sheet: Portfolio</span>
+                      <span className="text-blue-400 font-mono text-xs bg-blue-500/10 px-3 py-1 rounded-full">Sheet: Dividends</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+              {/* Column guide */}
+              <details>
+                <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-300 transition">
+                  📋 13 columns — click to expand
+                </summary>
+                <div className="mt-3 bg-slate-900/60 rounded-xl p-4">
+                  <p className="text-xs text-emerald-400 font-bold mb-3">Tracker sheet — all in one</p>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                    {[
+                      ["stockName",    "Stock / fund name"],
+                      ["type",         "Equity / ETF / MutualFund"],
+                      ["sector",       "IT / Banking / FMCG…"],
+                      ["symbol",       "NSE ticker (e.g. INFY)"],
+                      ["qty",          "Units / shares held"],
+                      ["avgPrice",     "Avg buy price ₹"],
+                      ["currentPrice", "Current market price ₹"],
+                      ["year",         "4-digit year (2025)"],
+                      ["month",        "Month number 1–12"],
+                      ["grossDiv",     "Gross dividend ₹"],
+                      ["tds",          "TDS deducted ₹"],
+                      ["netDiv",       "Net received ₹"],
+                      ["notes",        "Optional note"],
+                    ].map(([col, desc]) => (
+                      <div key={col} className="flex items-baseline gap-2">
+                        <code className="text-[10px] text-blue-300 font-mono shrink-0 w-28">{col}</code>
+                        <span className="text-[10px] text-slate-400">{desc}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </details>
+            </div>
           </div>
-        ) : meta ? (
-          <>
-            <InfoCard icon={<Table2    className="text-blue-400"   size={22} />} label="Total Records" value={meta.rows}          sub="rows in portfolio.xlsx" color="blue"   />
-            <InfoCard icon={<RefreshCw className="text-yellow-400" size={22} />} label="Last Modified" value={fmt(meta.modified)} sub="auto-saved on every change" color="yellow" />
-          </>
-        ) : (
-          <div className="col-span-4 text-red-400 flex items-center gap-2">
-            <AlertTriangle size={18} /> Cannot reach API server.
-          </div>
-        )}
-      </div>
+        </CardContent>
+      </Card>
 
-      {/* 📥 Download + actions */}
+      {/* Step 3 — Quick actions */}
       <Card className="bg-white/10 border-white/10 backdrop-blur-xl rounded-3xl shadow-2xl mb-6">
         <CardContent className="p-6">
-          <h3 className="text-base font-bold text-white mb-1">📥 Download & Update</h3>
-          <p className="text-xs text-slate-400 mb-5">
-            Download <span className="text-green-400 font-mono">tracker.xlsx</span> after making changes.
-            Re-upload next session to restore all data instantly.
-          </p>
-          <div className="flex flex-wrap gap-3">
-            <Button onClick={() => { window.open("/api/tracker/download","_blank"); showToast("Downloading tracker.xlsx…"); }}
-              className="h-11 px-6 rounded-2xl bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold flex items-center gap-2">
-              <Download size={16} /> Download tracker.xlsx
-            </Button>
-            <Button onClick={async () => { await onRefresh(); await loadMeta(); showToast("Refreshed from Excel."); }}
-              className="h-11 px-5 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-semibold flex items-center gap-2">
-              <RefreshCw size={15} /> Refresh
-            </Button>
-            <Button onClick={async () => { if (onRefreshAll) await onRefreshAll(); await loadMeta(); showToast("🔄 All tabs refreshed from Excel!"); }}
-              className="h-11 px-6 rounded-2xl bg-gradient-to-r from-blue-500 to-cyan-600 text-white font-bold flex items-center gap-2">
-              <RefreshCw size={15} /> Update All
-            </Button>
+          <div className="flex items-start gap-4">
+            <div className="w-10 h-10 rounded-full bg-violet-500/20 border border-violet-500/40 flex items-center justify-center shrink-0 text-violet-400 font-black text-sm">3</div>
+            <div className="flex-1">
+              <h3 className="text-base font-bold text-white mb-1">Quick Actions</h3>
+              <p className="text-xs text-slate-400 mb-4">Force-refresh all tabs from Neon or check record counts.</p>
+              <div className="flex flex-wrap gap-3 items-center">
+                <Button
+                  onClick={async () => { if (onRefreshAll) await onRefreshAll(); await loadMeta(); showToast("🔄 All tabs refreshed from Neon!"); }}
+                  className="h-10 px-5 rounded-xl bg-gradient-to-r from-blue-500 to-cyan-600 text-white font-bold flex items-center gap-2 text-sm">
+                  <RefreshCw size={15} /> Refresh All Tabs
+                </Button>
+                {meta && (
+                  <span className="text-xs text-slate-400">
+                    Neon: <span className="text-white font-bold">{meta.rows}</span> portfolio rows
+                  </span>
+                )}
+                {metaLoading && <Loader2 size={16} className="animate-spin text-slate-400" />}
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
